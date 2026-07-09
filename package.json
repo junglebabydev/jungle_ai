@@ -1,0 +1,46 @@
+{
+  "name": "jungle_ai",
+  "version": "1.0.0",
+  "description": "Jungle AI service — the concierge + merchant AI assistants and their channels.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "nodemon",
+    "typecheck": "tsc --noEmit",
+    "eval:merchant": "node tests/ai/merchant/eval/run.mjs",
+    "eval:merchant:reset": "node tests/ai/merchant/eval/reset.mjs",
+    "eval:merchant:ab": "node tests/ai/merchant/eval/compare-models.mjs",
+    "eval:concierge": "node tests/ai/concierge/eval/run.mjs",
+    "eval:concierge:ab": "node tests/ai/concierge/eval/compare-models.mjs",
+    "eval:concierge:golden": "node tests/ai/concierge/eval/golden.mjs",
+    "check:schema": "node scripts/check-schema-drift.mjs",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "check:search": "node scripts/check-search-consistency.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.5",
+    "date-fns": "^4.4.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "posthog-node": "^5.38.0",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.13.4",
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.9",
+    "prisma": "^5.22.0",
+    "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

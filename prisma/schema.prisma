@@ -1,0 +1,2175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum USER_STATUS {
+  ACTIVE
+  INACTIVE
+  INTERNAL
+}
+
+enum SG_REGIONS {
+  EAST
+  NORTH
+  WEST
+  NORTH_EAST
+  CENTRAL
+  SOUTH
+}
+
+enum LOCATION_TYPE {
+  INDOOR
+  OUTDOOR
+  BOTH
+}
+
+enum PRICE_INDICATOR {
+  FREE
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum MimeType {
+  IMAGE_JPEG      @map("image/jpeg")
+  IMAGE_PNG       @map("image/png")
+  IMAGE_WEBP      @map("image/webp")
+  IMAGE_GIF       @map("image/gif")
+  VIDEO_MP4       @map("video/mp4")
+  VIDEO_WEBM      @map("video/webm")
+  APPLICATION_PDF @map("application/pdf")
+}
+
+// High-level category for a merchant media-library asset. Drives the
+// Images / Videos / Audio / Files tabs in the uploads panel. The precise
+// browser MIME string is stored separately on MerchantMedia.mimeType.
+enum MERCHANT_MEDIA_TYPE {
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+}
+
+enum PRODUCT_TYPE {
+  CLASS
+  CAMP
+  BIRTHDAY
+  DROP_IN
+  EVENT
+}
+
+enum CLASS_FORMAT {
+  PARENT_PARTICIPATION
+  PARENT_ACCOMPANIED
+  INDEPENDENT
+}
+
+enum PRICE_TYPE {
+  TERM
+  PACKAGE
+  SESSION
+  TRIAL
+  CAMP_WEEK
+  CAMP_DAY
+  MEMBERSHIP
+  PARTY_BASE
+  PARTY_ADDON
+  DROP_IN_SESSION
+}
+
+enum RESIDENCY_TYPE {
+  SG_RESIDENT
+  SG_NON_RESIDENT
+  SG_CITIZENS_PR
+}
+
+enum SCHEDULE_TYPE {
+  RECURRING
+  FIXED_DATE
+  DATE_RANGE
+}
+
+enum SCHEDULE_STATUS {
+  DRAFT
+  ACTIVE
+  FULL
+  CANCELLED
+  COMPLETED
+}
+
+enum SESSION_STATUS {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  FULL
+}
+
+enum BOOKING_STATUS {
+  REQUESTED
+  PROCESSING
+  CONFIRMED
+  CANCELLED_BY_MERCHANT
+  CANCELLED_BY_USER
+  COMPLETED
+}
+
+enum PAYMENT_STATUS {
+  PENDING
+  PARTIAL
+  COMPLETED
+  REFUNDED
+  FAILED
+}
+
+enum PACKAGE_STATUS {
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
+
+enum REGISTRATION_STATUS {
+  REGISTERED
+  WAITLISTED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ENROLLMENT_TYPE {
+  PACKAGE
+  TRIAL
+  DROP_IN
+  MAKEUP
+  COMP
+}
+
+enum ATTENDANCE_STATUS {
+  PRESENT
+  ABSENT
+  LATE
+  LEFT_EARLY
+  EXCUSED_ABSENCE
+}
+
+enum REGISTRATION_CONVERSION_STATUS {
+  PENDING
+  TRIAL_SCHEDULED
+  CONVERTED
+  REJECTED
+}
+
+enum PACKAGE_KIND {
+  TRIAL
+  REGULAR
+  TERM
+  SUBSCRIPTION
+  MEMBERSHIP
+}
+
+enum RECURRENCE_PATTERN {
+  WEEKLY
+}
+
+enum BIRTHDAY_VENUE_TYPE {
+  AT_HOME
+  AT_LOCATION
+  BOTH
+}
+
+enum BIRTHDAY_ADDON_UNIT {
+  PER_KID
+  PER_PARENT
+  PER_EVENT
+}
+
+enum BIRTHDAY_REQUEST_STATUS {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum DROP_IN_REQUEST_STATUS {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum DROP_IN_PRICING_UNIT {
+  PER_KID
+  PER_ADULT
+  PER_BOOKING
+}
+
+enum DROP_IN_SCHEDULE_KIND {
+  WEEKLY
+  ONE_OFF
+}
+
+// ── Stripe Connect / Subscriptions (Sprint 1 Track 1) ───────────────────────
+
+enum PAYMENT_METHOD {
+  CARD
+  PAYNOW
+  GRABPAY
+  OTHER
+}
+
+enum STRIPE_PAYMENT_STATUS {
+  PENDING
+  REQUIRES_ACTION
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELED
+}
+
+enum PAYOUT_STATUS {
+  PENDING
+  IN_TRANSIT
+  PAID
+  FAILED
+  CANCELED
+}
+
+enum DISPUTE_STATUS {
+  WARNING_NEEDS_RESPONSE
+  WARNING_UNDER_REVIEW
+  WARNING_CLOSED
+  NEEDS_RESPONSE
+  UNDER_REVIEW
+  WON
+  LOST
+}
+
+enum PAYMENT_TYPE {
+  ONE_TIME
+  SUBSCRIPTION
+  OFFLINE
+}
+
+enum BILLING_INTERVAL {
+  WEEK
+  MONTH
+}
+
+model Role {
+  id              Int              @id @default(autoincrement())
+  name            String
+  createdAt       DateTime         @default(now())
+  scope           String
+  users           User[]
+  merchantUsers   MerchantUser[]
+  locationUsers   LocationUser[]
+  rolePermissions RolePermission[]
+
+  @@unique([name, scope])
+}
+
+model Permission {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique
+  description     String?
+  scope           String?
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id     Int    @id @default(autoincrement())
+  userID String @default(uuid())
+
+  platformRoleId Int
+  platformRole   Role @relation(fields: [platformRoleId], references: [id])
+
+  merchantLocationId Int?
+  merchantLocation   Location? @relation(fields: [merchantLocationId], references: [id])
+
+  address    String?
+  unitNumber String?
+  pinCode    Int?
+
+  email     String  @unique
+  phone     String?
+  firstName String
+  lastName  String
+
+  firebaseId       String
+  medicalInfo      String?
+  notes            String?
+  emergencyContact String?
+
+  status     USER_STATUS @default(ACTIVE)
+  isArchived Boolean     @default(false)
+
+  emailVerified           Boolean   @default(false)
+  emailVerificationSentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchantUsers MerchantUser[]
+  locationUsers LocationUser[]
+  authSessions  AuthSession[]
+  bookings      Booking[]
+
+  // Sprint 1 Track 1
+  payments Payment[]
+}
+
+model AuthSession {
+  id               Int       @id @default(autoincrement())
+  refreshTokenHash String    @unique
+  tokenHash        String    @unique
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+  isLoggedOut      Boolean
+  loggedOutAt      DateTime?
+  signedInAt       DateTime
+  lastActiveAt     DateTime  @default(now())
+  issuedAt         DateTime  @default(now())
+  expiresAt        DateTime
+  ipAddress        String?
+  deviceInfo       Json?
+}
+
+model Merchant {
+  id         Int    @id @default(autoincrement())
+  merchantID String @unique @default(uuid())
+
+  name                 String
+  businessRegistration String?
+  gstRegistered        Boolean @default(false)
+  gstNumber            String?
+
+  logoUrl      String?
+  brandColor   String?
+  contactEmail String?
+  contactPhone String?
+  webUrl       String?
+
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+
+  isActive   Boolean @default(true)
+  isArchived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations         Location[]
+  merchantUsers     MerchantUser[]
+  productCategories ProductCategory[]
+  registrations     Registration[]
+  packageTemplates  PackageTemplate[]
+  birthdayRequests  BirthdayRequest[]
+  dropInRequests    DropInRequest[]
+
+  // Sprint 1 Track 1 — Stripe Connect
+  stripeAccount MerchantStripeAccount?
+  payments      Payment[]
+  payouts       Payout[]
+  disputes      Dispute[]
+
+  // Sprint 2 Track 1 — Jungle SaaS subscription
+  jungleSubscription MerchantSubscription?
+
+  // Sprint 2 Track 2 — Website builder
+  siteConfig MerchantSiteConfig?
+
+  // Merchant media library (Canva-style uploads panel)
+  merchantMedia MerchantMedia[]
+}
+
+model MerchantMedia {
+  id              Int    @id @default(autoincrement())
+  merchantMediaID String @unique @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  type     MERCHANT_MEDIA_TYPE
+  mimeType String
+  url      String
+  // GCS object path (e.g. merchants/<merchantId>/<type>/<folder?>/<uuid>_<name>).
+  // Stored explicitly so the object can be deleted without parsing the URL.
+  objectKey String  @unique
+  fileName  String
+  sizeBytes Int
+  // Optional user-defined folder for the Folders tab. null = library root.
+  folder String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([merchantId, type])
+  @@index([merchantId, folder])
+}
+
+// newly added - gMapRating: Google Maps rating for the location (0.00 to 5.00)
+// newly added - reviewCount: Number of Google Maps reviews for the location
+model Location {
+  id         Int    @id @default(autoincrement())
+  locationID String @unique @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  name       String
+  address    String
+  sgDistrict String
+  sgRegion   SG_REGIONS
+  postalCode String?
+  lat        Float?
+  long       Float?
+
+  phone    String?
+  email    String?
+  whatsApp String?
+
+  ageMin Int?
+  ageMax Int?
+
+  thumbnail    String?
+  locationType LOCATION_TYPE
+  gMapUrl      String
+  gMapRating   Decimal? @db.Decimal(10, 2)
+  reviewCount  Int?
+  tags         String[]
+
+  isActive   Boolean @default(true)
+  isArchived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  details           LocationDetails?
+  operatingHrs      LocationOperatingHrs[]
+  media             LocationMedia[]
+  locationUsers     LocationUser[]
+  users             User[]
+  products          Product[]
+  productCategories ProductCategory[]
+  students          Student[]
+  registrations     Registration[]
+  bookings          Booking[]
+  packageTemplates  PackageTemplate[]
+  packages          Package[]
+  schedules         Schedule[]
+  sessions          Session[]
+  birthdayRequests  BirthdayRequest[]
+  dropInSchedules   DropInSchedule[]
+  dropInRequests    DropInRequest[]
+}
+
+model LocationDetails {
+  id           Int      @id @default(autoincrement())
+  locationId   Int      @unique
+  location     Location @relation(fields: [locationId], references: [id])
+  description  String
+  termsSummary String?
+  termsUrl     String?
+  bookingUrl   String?
+  webUrl       String?
+  email        String?
+  instagramUrl String?
+  facebookUrl  String?
+  phone        String?
+  whatsApp     String?
+}
+
+model LocationOperatingHrs {
+  id          Int      @id @default(autoincrement())
+  locationId  Int
+  location    Location @relation(fields: [locationId], references: [id])
+  day         Int
+  businessHrs String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LocationMedia {
+  id         Int      @id @default(autoincrement())
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+  url        String
+  mimeType   MimeType
+  sequence   Int?
+  createdAt  DateTime @default(now())
+}
+
+model MerchantUser {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  user           User      @relation(fields: [userId], references: [id])
+  merchantId     Int
+  merchant       Merchant  @relation(fields: [merchantId], references: [id])
+  merchantRoleId Int
+  merchantRole   Role      @relation(fields: [merchantRoleId], references: [id])
+  isSuspended    Boolean   @default(false)
+  joinedAt       DateTime?
+
+  @@unique([userId, merchantId])
+  @@index([merchantId, merchantRoleId])
+  @@index([userId])
+}
+
+model LocationUser {
+  id                 Int @id @default(autoincrement())
+  userId             Int
+  merchantLocationId Int
+  locationRoleId     Int
+
+  user             User     @relation(fields: [userId], references: [id])
+  merchantLocation Location @relation(fields: [merchantLocationId], references: [id])
+  locationRole     Role     @relation(fields: [locationRoleId], references: [id])
+
+  joinedAt DateTime?
+  // sessions Session[]
+  sessions Session[]
+
+  @@unique([userId, merchantLocationId])
+  @@index([merchantLocationId, locationRoleId])
+  @@index([userId])
+}
+
+model ProductCategory {
+  id              Int               @id @default(autoincrement())
+  categoryID      String            @unique @default(uuid())
+  locationId      Int
+  location        Location          @relation(fields: [locationId], references: [id])
+  merchantId      Int
+  merchant        Merchant          @relation(fields: [merchantId], references: [id])
+  name            String
+  description     String?
+  thumbnail       String?
+  isArchived      Boolean           @default(false)
+  archivedAt      DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  products        Product[]
+  classes         ClassDetails[]
+  campDetails     CampDetails[]
+  birthdayDetails BirthdayDetails[]
+  dropInDetails   DropInDetails[]
+}
+
+model Product {
+  id        Int    @id @default(autoincrement())
+  productID String @unique @default(uuid())
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  name        String
+  description String       @db.Text
+  productType PRODUCT_TYPE
+  ageMin      Int
+  ageMax      Int
+
+  imageUrl     String?
+  thumbnailUrl String?
+  tags         String[]
+  highlights   String[]
+
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+  isArchived  Boolean   @default(false)
+  archivedAt  DateTime?
+
+  slug            String? @unique
+  metaTitle       String?
+  metaDescription String?
+
+  // Sprint 1 Track 1 — Stripe payment type
+  paymentType     PAYMENT_TYPE      @default(ONE_TIME)
+  billingInterval BILLING_INTERVAL?
+  intervalCount   Int?
+  stripePriceId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  classDetails       ClassDetails?
+  pricings           Pricing[]
+  registrations      Registration[]
+  bookings           Booking[]
+  packageTemplates   PackageTemplate[]
+  schedules          Schedule[]
+  sessions           Session[]
+  sessionEnrollments SessionEnrollment[]
+  attendances        Attendance[]
+  campDetails        CampDetails?
+  productMedias      ProductMedia[]
+  campOptions        CampOption[]
+  birthdayDetails    BirthdayDetails?
+  birthdayAddons     BirthdayAddon[]
+  birthdayRequests   BirthdayRequest[]
+  dropInDetails      DropInDetails?
+  dropInSchedules    DropInSchedule[]
+  dropInRequests     DropInRequest[]
+
+  // Sprint 1 Track 1
+  payments Payment[]
+}
+
+model ProductMedia {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  url      String
+  mimeType MimeType
+  sequence Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+model ClassDetails {
+  id         Int              @id @default(autoincrement())
+  classID    String           @unique @default(uuid())
+  productId  Int              @unique
+  product    Product          @relation(fields: [productId], references: [id])
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  format               CLASS_FORMAT
+  duration             Int
+  maxCapacity          Int
+  minEnrollment        Int?
+  developmentStage     String?
+  skillLevel           String?
+  skillLevelCode       String?
+  gradeLevel           String?
+  prerequisite         String?      @db.Text
+  progressionPath      String?      @db.Text
+  assessmentRequired   Boolean      @default(false)
+  estimatedLessons     Int?
+  typicalDurationWeeks Int?
+
+  allowTrials       Boolean @default(true)
+  maxTrialsPerChild Int     @default(1)
+
+  requiresPackage      Boolean @default(false)
+  allowDropIn          Boolean @default(false)
+  isTermBased          Boolean @default(false)
+  termLengthWeeks      Int?
+  sessionsPerWeek      Int?    @default(1)
+  totalSessionsPerTerm Int     @default(1)
+
+  curriculum         String?  @db.Text
+  learningObjectives String[]
+  materialsIncluded  String?
+  materialsRequired  String?
+  specialNeeds       Boolean  @default(false)
+  ratioRequirement   String?
+  dresscode          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CampDetails {
+  id     Int    @id @default(autoincrement())
+  campID String @unique @default(uuid())
+
+  productId Int     @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  name        String?
+  description String? @db.Text
+
+  venueAddress String?
+  lat          Float?
+  long         Float?
+
+  nearestMrt     String?
+  nearestBusStop String?
+  mealIncluded   Boolean @default(false)
+  busIncluded    Boolean @default(false)
+
+  discountDetails String? @db.Text
+  bookingUrl      String?
+  notes           String? @db.Text
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  campOptions CampOption[]
+}
+
+model CampOption {
+  id       Int    @id @default(autoincrement())
+  optionID String @unique @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  campDetailsId Int?
+  campDetails   CampDetails? @relation(fields: [campDetailsId], references: [id])
+
+  name String
+
+  startDate DateTime
+  endDate   DateTime
+  startTime String
+  endTime   String
+
+  ageMin Int?
+  ageMax Int?
+
+  capacity    Int?
+  isAvailable Boolean @default(true)
+
+  price     Decimal?    @db.Decimal(10, 2)
+  priceType PRICE_TYPE?
+
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  registrations Registration[]
+  bookings      Booking[]
+}
+
+model BirthdayDetails {
+  id         Int    @id @default(autoincrement())
+  birthdayID String @unique @default(uuid())
+
+  productId Int     @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  venueType       BIRTHDAY_VENUE_TYPE @default(AT_LOCATION)
+  durationMinutes Int?
+
+  minKids    Int?
+  maxKids    Int?
+  minParents Int?
+  maxParents Int?
+
+  whatsIncluded      String? @db.Text
+  cancellationPolicy String? @db.Text
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  birthdayAddons BirthdayAddon[]
+}
+
+model BirthdayAddon {
+  id              Int    @id @default(autoincrement())
+  birthdayAddonID String @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  birthdayDetailsId Int?
+  birthdayDetails   BirthdayDetails? @relation(fields: [birthdayDetailsId], references: [id])
+
+  name        String
+  description String?
+
+  unit      BIRTHDAY_ADDON_UNIT
+  unitPrice Decimal             @db.Decimal(10, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  birthdayRequestAddons BirthdayRequestAddon[]
+
+  @@unique([productId, name])
+  @@index([productId, isActive])
+}
+
+model BirthdayRequest {
+  id                Int    @id @default(autoincrement())
+  birthdayRequestID String @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  pricingId Int
+  pricing   Pricing @relation(fields: [pricingId], references: [id])
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  parentFullName String
+  parentEmail    String?
+  parentPhone    String?
+
+  requestedDate   DateTime
+  startTime       String?
+  durationMinutes Int?
+
+  kidsCount    Int @default(0)
+  parentsCount Int @default(0)
+
+  status      BIRTHDAY_REQUEST_STATUS @default(PENDING)
+  confirmedAt DateTime?
+
+  notes          String? @db.Text
+  customisations String? @db.Text
+
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  birthdayRequestAddons BirthdayRequestAddon[]
+  booking               Booking?
+
+  @@index([merchantId, locationId, status])
+  @@index([productId, status])
+}
+
+model BirthdayRequestAddon {
+  id Int @id @default(autoincrement())
+
+  requestId Int
+  request   BirthdayRequest @relation(fields: [requestId], references: [id])
+
+  addonId Int
+  addon   BirthdayAddon @relation(fields: [addonId], references: [id])
+
+  quantity Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, addonId])
+  @@index([requestId])
+  @@index([addonId])
+}
+
+model DropInDetails {
+  id       Int    @id @default(autoincrement())
+  dropInID String @unique @default(uuid())
+
+  productId Int     @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  minKids    Int?
+  maxKids    Int?
+  minParents Int?
+  maxParents Int?
+
+  whatsIncluded      String? @db.Text
+  cancellationPolicy String? @db.Text
+  notes              String? @db.Text
+  bookingUrl         String?
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  dropInSchedules DropInSchedule[]
+}
+
+model DropInSchedule {
+  id               Int    @id @default(autoincrement())
+  dropInScheduleID String @unique @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  dropInDetailsId Int?
+  dropInDetails   DropInDetails? @relation(fields: [dropInDetailsId], references: [id])
+
+  kind DROP_IN_SCHEDULE_KIND
+
+  dayOfWeek Int?
+  startTime String?
+  endTime   String?
+
+  date          DateTime?
+  dateStartTime String?
+  dateEndTime   String?
+
+  isActive   Boolean @default(true)
+  isArchived Boolean @default(false)
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  dropInRequests DropInRequest[]
+
+  @@index([productId, isActive])
+  @@index([locationId, isActive])
+}
+
+model DropInRequest {
+  id              Int    @id @default(autoincrement())
+  dropInRequestID String @unique @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  scheduleId Int?
+  schedule   DropInSchedule? @relation(fields: [scheduleId], references: [id])
+
+  fullName String
+  email    String?
+  phone    String?
+
+  requestedDate      DateTime?
+  requestedDayOfWeek Int?
+  requestedStartTime String?
+  requestedEndTime   String?
+
+  status      DROP_IN_REQUEST_STATUS @default(PENDING)
+  confirmedAt DateTime?
+
+  notes         String? @db.Text
+  internalNotes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  booking   Booking?
+
+  dropInRequestItems DropInRequestItem[]
+
+  @@index([merchantId, locationId, status])
+  @@index([productId, status])
+}
+
+model DropInRequestItem {
+  id Int @id @default(autoincrement())
+
+  requestId Int
+  request   DropInRequest @relation(fields: [requestId], references: [id])
+
+  pricingId Int
+  pricing   Pricing @relation(fields: [pricingId], references: [id])
+
+  quantity Int @default(1)
+
+  pricingNameSnapshot String
+  unitPriceSnapshot   Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, pricingId])
+  @@index([pricingId])
+}
+
+model Pricing {
+  id        Int     @id @default(autoincrement())
+  pricingID String  @default(uuid())
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  name      String
+  price     Decimal    @db.Decimal(10, 2)
+  priceType PRICE_TYPE
+
+  dropInUnit DROP_IN_PRICING_UNIT?
+
+  sessionsIncluded Int?
+  validityDays     Int?
+  canShareSiblings Boolean         @default(false)
+  residencyType    RESIDENCY_TYPE?
+  ageMin           Int?
+  ageMax           Int?
+
+  isPublic          Boolean   @default(true)
+  promoPrice        Decimal?  @db.Decimal(10, 2)
+  promoCode         String?
+  promoStartDate    DateTime?
+  promoEndDate      DateTime?
+  earlyBirdDiscount Decimal?  @db.Decimal(10, 2)
+  earlyBirdDeadline DateTime?
+  siblingsDiscount  Decimal?  @db.Decimal(10, 2)
+
+  displayOrder  Int?
+  isRecommended Boolean   @default(false)
+  isArchived    Boolean   @default(false)
+  archivedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations      Registration[]
+  bookings           Booking[]
+  attendances        Attendance[]
+  birthdayRequests   BirthdayRequest[]
+  dropInRequestItems DropInRequestItem[]
+}
+
+model Student {
+  id        Int    @id @default(autoincrement())
+  studentID String @unique @default(uuid())
+
+  registrationId Int?          @unique
+  registration   Registration? @relation(fields: [registrationId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  firstName String
+  lastName  String
+  fullName  String
+
+  birthDate   DateTime
+  ageInMonths Int?
+  gender      String?
+
+  parentFirstName  String
+  parentLastName   String
+  parentFullName   String
+  parentEmail      String?
+  parentPhone      String?
+  parentAddress    String?
+  parentUnitNumber String?
+  parentPincode    String?
+
+  medicalInfo         String? @db.Text
+  emergencyContact    String
+  dietaryRestrictions String?
+  specialNeeds        String?
+
+  isActive      Boolean @default(true)
+  isArchived    Boolean @default(false)
+  internalNotes String? @db.Text
+
+  gradeLevel String?
+  schoolName String?
+
+  tags String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings           BookingStudent[]
+  packages           Package[]
+  sessionEnrollments SessionEnrollment[]
+  attendances        Attendance[]
+  packageCredits     PackageCredit[]
+
+  @@index([locationId])
+  @@index([parentEmail])
+  @@index([parentPhone])
+  @@index([isActive, locationId])
+}
+
+model Registration {
+  id             Int    @id @default(autoincrement())
+  registrationID String @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  parentFullName String
+  parentEmail    String?
+  parentPhone    String?
+
+  childFullName    String
+  childBirthdate   DateTime
+  childGender      String?
+  medicalInfo      String?
+  emergencyContact String
+  pincode          String?
+  address          String?
+  unitNumber       String?
+
+  productId Int?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  packageTemplateId Int?
+  packageTemplate   PackageTemplate? @relation(fields: [packageTemplateId], references: [id])
+
+  campOptionId Int?
+  campOption   CampOption? @relation(fields: [campOptionId], references: [id])
+
+  preferredSchduleId Int?
+  preferredSchedule  Schedule? @relation(fields: [preferredSchduleId], references: [id])
+
+  pricingId Int?
+  pricing   Pricing? @relation(fields: [pricingId], references: [id])
+
+  termsVersion   String
+  termsTimestamp DateTime
+  versionNumber  Int      @default(1)
+
+  isActive Boolean @default(true)
+  notes    String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversionStatus REGISTRATION_CONVERSION_STATUS @default(PENDING)
+
+  createdStudentId Int?     @unique
+  createdStudent   Student?
+
+  trialBookingId Int?
+  trialBooking   Booking? @relation("TrialBooking", fields: [trialBookingId], references: [id])
+
+  packageBookingId Int?
+  packageBooking   Booking? @relation("PackageBooking", fields: [packageBookingId], references: [id])
+
+  trialScheduledAt DateTime?
+  trialCompletedAt DateTime?
+  convertedAt      DateTime?
+  rejectedAt       DateTime?
+  rejectedReason   String?
+
+  @@index([merchantId, locationId])
+  @@index([conversionStatus])
+  @@index([createdStudentId])
+}
+
+model Booking {
+  id        Int    @id @default(autoincrement())
+  bookingID String @default(uuid())
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  productId Int?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  scheduleId Int?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id])
+
+  pricingId Int?
+  pricing   Pricing? @relation(fields: [pricingId], references: [id])
+
+  campOptionId Int?
+  campOption   CampOption? @relation(fields: [campOptionId], references: [id])
+
+  birthdayRequestId Int?             @unique
+  birthdayRequest   BirthdayRequest? @relation(fields: [birthdayRequestId], references: [id])
+
+  dropInRequestId Int?           @unique
+  dropInRequest   DropInRequest? @relation(fields: [dropInRequestId], references: [id])
+
+  email     String
+  firstName String
+  lastName  String
+  phone     String?
+
+  referenceNumber String   @unique
+  bookingDate     DateTime @default(now())
+
+  students BookingStudent[]
+
+  totalChildren Int
+  totalAdults   Int?
+
+  unitPrice       Decimal @db.Decimal(10, 2)
+  pricingSnapshot Json?
+
+  appliedPromoCode String?
+  discountAmount   Decimal? @db.Decimal(10, 2)
+  totalAmount      Decimal? @db.Decimal(10, 2)
+
+  status        BOOKING_STATUS @default(REQUESTED)
+  paymentStatus PAYMENT_STATUS @default(PENDING)
+
+  pdpaConsentGiven   Boolean   @default(false)
+  pdpaConsentAt      DateTime?
+  pdpaConsentVersion String?
+  photoConsent       Boolean   @default(false)
+  medicalInfoConsent Boolean   @default(false)
+  emergencyContact   Json?
+
+  notes           String? @db.Text
+  internalNotes   String? @db.Text
+  specialRequests String? @db.Text
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  confirmedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  trialRegistrations   Registration[] @relation("TrialBooking")
+  packageRegistrations Registration[] @relation("PackageBooking")
+
+  // Sprint 1 Track 1
+  payments Payment[]
+
+  @@index([locationId, status])
+  @@index([email])
+  @@index([phone])
+}
+
+model BookingStudent {
+  bookingId Int
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  studentId Int
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@id([bookingId, studentId])
+  @@index([studentId])
+}
+
+model PackageTemplate {
+  id         Int    @id @default(autoincrement())
+  templateID String @unique @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  productId Int?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  name String
+  kind PACKAGE_KIND
+
+  creditsIncluded     Int?
+  billingPeriodMonths Int?
+  validityDays        Int?
+
+  canShareSiblings Boolean @default(false)
+
+  price       Decimal @db.Decimal(10, 2)
+  description String?
+  thumbnailUrl String?
+
+  stripePriceId String?
+
+  isPublic   Boolean @default(true)
+  isArchived Boolean @default(false)
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  packages      Package[]
+  registrations Registration[]
+}
+
+model Package {
+  id        Int    @id @default(autoincrement())
+  packageID String @default(uuid())
+
+  studentId Int?
+  student   Student? @relation(fields: [studentId], references: [id])
+
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  templateId Int?
+  template   PackageTemplate? @relation(fields: [templateId], references: [id])
+
+  name         String
+  price        Decimal @db.Decimal(10, 2)
+  creditsTotal Int?
+  validityDays Int?
+
+  purchasedAt DateTime  @default(now())
+  firstUsedAt DateTime?
+  validFrom   DateTime?
+  validUntil  DateTime?
+
+  isExpired Boolean @default(false)
+
+  canShareSiblings   Boolean        @default(false)
+  sharedWithChildren Int[]
+  status             PACKAGE_STATUS @default(ACTIVE)
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  sessionEnrollments SessionEnrollment[]
+  attendances        Attendance[]
+  packageCredits     PackageCredit[]
+}
+
+model Schedule {
+  id         Int    @id @default(autoincrement())
+  scheduleID String @default(uuid())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  scheduleType SCHEDULE_TYPE
+
+  dayOfWeek      Int?
+  startTime      String?
+  endTime        String?
+  recurrenceRule RECURRENCE_PATTERN? @default(WEEKLY)
+
+  specificDate      DateTime?
+  specificStartTime String?
+  specificEndTime   String?
+
+  rangeStartDate DateTime?
+  rangeEndDate   DateTime?
+
+  termName      String?
+  termStartDate DateTime?
+  termEndDate   DateTime?
+
+  defaultRoom        String?
+  maxCapacity        Int
+  waitlistEnabled    Boolean         @default(false)
+  status             SCHEDULE_STATUS @default(ACTIVE)
+  cancelledAt        DateTime?
+  cancellationReason String?
+  excludedDates      DateTime[]
+  isPublished        Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings      Booking[]
+  sessions      Session[]
+  registrations Registration[]
+}
+
+model Session {
+  id        Int    @id @default(autoincrement())
+  sessionID String @default(uuid())
+
+  scheduleId Int
+  schedule   Schedule @relation(fields: [scheduleId], references: [id])
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id])
+
+  instructorId Int?
+  instructor   LocationUser? @relation(fields: [instructorId], references: [id])
+
+  name        String?
+  sessionDate DateTime
+  startTime   String
+  endTime     String
+
+  maxCapacity     Int
+  currentEnrolled Int @default(0)
+  availableSlots  Int
+
+  status             SESSION_STATUS @default(SCHEDULED)
+  isCancelled        Boolean        @default(false)
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  roomOverride String?
+  sessionNotes String? @db.Text
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  sessionEnrollments SessionEnrollment[]
+  attendances        Attendance[]
+
+  @@index([locationId])
+  @@index([instructorId, locationId])
+}
+
+model SessionEnrollment {
+  id           Int    @id @default(autoincrement())
+  enrollmentID String @default(uuid())
+
+  sessionId Int
+  session   Session @relation(fields: [sessionId], references: [id])
+
+  studentId Int
+  student   Student @relation(fields: [studentId], references: [id])
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  packageId Int?
+  package   Package? @relation(fields: [packageId], references: [id])
+
+  enrollmentType ENROLLMENT_TYPE
+
+  specialNeeds        String?
+  dietaryRestrictions String?
+  medicalNotes        String?
+  emergencyContact    Json?
+
+  isMakeup              Boolean             @default(false)
+  makeupForEnrollmentId Int?
+  makeupForEnrollment   SessionEnrollment?  @relation("MakeupSessions", fields: [makeupForEnrollmentId], references: [id], onDelete: SetNull)
+  compensatedByMakeups  SessionEnrollment[] @relation("MakeupSessions")
+
+  isMakeupOffered   Boolean   @default(false)
+  makeupRequestedAt DateTime?
+  makeupApprovedAt  DateTime?
+
+  registeredAt       DateTime        @default(now())
+  cancelledAt        DateTime?
+  cancellationReason String?
+  updatedAt          DateTime        @updatedAt
+  attendance         Attendance?
+  packageCredits     PackageCredit[]
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@index([packageId])
+  @@index([enrollmentType])
+  // @@index([registrationStatus])
+  @@index([makeupForEnrollmentId])
+}
+
+model Attendance {
+  id           Int    @id @default(autoincrement())
+  attendanceID String @default(uuid())
+
+  sessionEnrollmentId Int               @unique
+  sessionEnrollment   SessionEnrollment @relation(fields: [sessionEnrollmentId], references: [id])
+
+  sessionId Int
+  session   Session @relation(fields: [sessionId], references: [id])
+
+  studentId Int
+  student   Student @relation(fields: [studentId], references: [id])
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  pricingId Int?
+  pricing   Pricing? @relation(fields: [pricingId], references: [id])
+
+  packageId Int?
+  package   Package? @relation(fields: [packageId], references: [id])
+
+  status    ATTENDANCE_STATUS
+  arrivedAt DateTime?
+  leftAt    DateTime?
+
+  creditDeducted Boolean         @default(false)
+  packageCredits PackageCredit[]
+
+  notes         String?
+  behaviorNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([sessionId])
+  @@index([packageId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PackageCredit {
+  id Int @id @default(autoincrement())
+
+  packageId Int
+  package   Package @relation(fields: [packageId], references: [id])
+
+  studentId Int
+  student   Student @relation(fields: [studentId], references: [id])
+
+  sessionEnrollmentId Int?
+  sessionEnrollment   SessionEnrollment? @relation(fields: [sessionEnrollmentId], references: [id])
+
+  attendanceId Int?
+  attendance   Attendance? @relation(fields: [attendanceId], references: [id])
+
+  creditsChange Int
+
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([packageId])
+  @@index([studentId])
+  @@index([sessionEnrollmentId])
+  @@index([attendanceId])
+}
+
+// ── Sprint 1 Track 1 — Stripe Connect models ─────────────────────────────────
+
+/// One-to-one with Merchant — tracks the merchant's Stripe Connect Express
+/// account state (charges/payouts capability flags, onboarding progress).
+model MerchantStripeAccount {
+  id         Int      @id @default(autoincrement())
+  merchantId Int      @unique
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  stripeAccountId     String  @unique
+  chargesEnabled      Boolean @default(false)
+  payoutsEnabled      Boolean @default(false)
+  detailsSubmitted    Boolean @default(false)
+  disabledReason      String?
+  country             String  @default("SG")
+  defaultCurrency     String  @default("sgd")
+  onboardingCompleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stripeAccountId])
+}
+
+/// Transaction-level record of every parent payment (one-time PaymentIntent
+/// or subscription invoice payment). Source of truth at the transaction
+/// level; `Booking.paymentStatus` is derived.
+model Payment {
+  id        Int    @id @default(autoincrement())
+  paymentID String @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  bookingId Int?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  productId Int?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  paymentIntentId  String? @unique
+  subscriptionId   String?
+  invoiceId        String?
+  hostedInvoiceUrl String?
+  invoicePdfUrl    String?
+
+  amount               Int
+  currency             String                @default("sgd")
+  applicationFeeAmount Int
+  paymentMethod        PAYMENT_METHOD
+  status               STRIPE_PAYMENT_STATUS
+  failureReason        String?
+  refundedAmount       Int                   @default(0)
+  metadata             Json?
+  customerEmail        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  disputes Dispute[]
+
+  @@index([merchantId, status])
+  @@index([userId])
+  @@index([bookingId])
+  @@index([subscriptionId])
+}
+
+/// Mirror of Stripe payout objects. Hydrated from `payout.created`,
+/// `payout.paid`, `payout.failed` Connect webhooks.
+model Payout {
+  id       Int    @id @default(autoincrement())
+  payoutID String @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  stripePayoutId String        @unique
+  amount         Int
+  currency       String        @default("sgd")
+  status         PAYOUT_STATUS
+  arrivalDate    DateTime?
+  failureCode    String?
+  failureMessage String?
+  method         String?
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId, status])
+}
+
+/// Stripe charge dispute. Hydrated from `charge.dispute.*` webhooks.
+/// Critical: merchants must be notified urgently (evidence deadlines).
+model Dispute {
+  id        Int    @id @default(autoincrement())
+  disputeID String @default(uuid())
+
+  merchantId Int
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  paymentId Int?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  stripeDisputeId String         @unique
+  stripeChargeId  String
+  amount          Int
+  currency        String         @default("sgd")
+  reason          String
+  status          DISPUTE_STATUS
+  evidenceDueBy   DateTime?
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId, status])
+}
+
+/// Idempotency layer for Stripe webhooks. Every event upserts on event.id.
+/// `processedAt = null` rows are the replay backlog.
+model StripeEvent {
+  id           Int      @id @default(autoincrement())
+  eventId      String   @unique
+  type         String
+  processedAt  DateTime @default(now())
+  payload      Json
+  status       String   @default("processed")
+  errorMessage String?
+
+  @@index([type])
+  @@index([processedAt])
+}
+
+// ── Sprint 2 Track 1: Jungle SaaS billing (merchant → Jungle) ─────────────────
+//
+// Distinct from Sprint 1's Stripe Connect subscriptions (which are
+// parent → merchant). These run on Jungle's main Stripe account and use
+// `application_fee_percent` of N/A (Jungle keeps 100% of the SaaS fee).
+//
+// Webhook channel: PLATFORM events (event.account is undefined). Routed by
+// the dispatcher per Decision #14.
+
+enum JUNGLE_SUBSCRIPTION_STATUS {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELED
+  INCOMPLETE
+}
+
+/// One row per pricing tier Jungle offers (Starter / Growth / Pro).
+/// `features` and `limits` are JSONB blobs queried by the plan-limits
+/// middleware. Stripe Price IDs link to the Products created on Jungle's
+/// main Stripe account (NOT Connect accounts).
+model JunglePlan {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  slug                 String   @unique
+  description          String?
+  monthlyPrice         Int // cents
+  yearlyPrice          Int? // cents (optional)
+  stripePriceIdMonthly String   @unique
+  stripePriceIdYearly  String?  @unique
+  features             Json // { booking_system: true, website_builder: true, ai_agent: false, ... }
+  limits               Json // { max_products: 50, max_locations: 1, max_bookings_per_month: 500, ... }
+  trialDays            Int      @default(14)
+  sortOrder            Int      @default(0)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  subscriptions MerchantSubscription[]
+}
+
+/// One subscription per merchant — they are subscribed to exactly one plan
+/// at a time. `stripeCustomerId` is set early (when the merchant first hits
+/// the subscribe endpoint, even before a successful payment); `stripeSubscriptionId`
+/// only appears after the parent completes Stripe Checkout and the webhook fires.
+model MerchantSubscription {
+  id                   Int                        @id @default(autoincrement())
+  merchantId           Int                        @unique
+  merchant             Merchant                   @relation(fields: [merchantId], references: [id])
+  planId               Int
+  plan                 JunglePlan                 @relation(fields: [planId], references: [id])
+  stripeCustomerId     String                     @unique
+  stripeSubscriptionId String?                    @unique
+  status               JUNGLE_SUBSCRIPTION_STATUS @default(INCOMPLETE)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  trialEndsAt          DateTime?
+  cancelAt             DateTime?
+  canceledAt           DateTime?
+  billingInterval      BILLING_INTERVAL           @default(MONTH)
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  invoices JungleInvoice[]
+
+  @@index([status])
+  @@index([stripeSubscriptionId])
+}
+
+/// Mirror of Stripe invoices on Jungle's main account. Hydrated by
+/// `invoice.paid` and `invoice.payment_failed` webhooks (platform channel).
+model JungleInvoice {
+  id                     Int                  @id @default(autoincrement())
+  merchantSubscriptionId Int
+  merchantSubscription   MerchantSubscription @relation(fields: [merchantSubscriptionId], references: [id])
+  stripeInvoiceId        String               @unique
+  amount                 Int // cents
+  currency               String               @default("sgd")
+  status                 String // 'paid' | 'open' | 'void' | 'uncollectible'
+  hostedInvoiceUrl       String?
+  invoicePdfUrl          String?
+  periodStart            DateTime
+  periodEnd              DateTime
+  paidAt                 DateTime?
+  createdAt              DateTime             @default(now())
+
+  @@index([merchantSubscriptionId])
+}
+
+/// Sprint 2 Track 2 — Website builder.
+/// One row per merchant. Holds top-level site config plus published-snapshot
+/// columns (publishedXJson) so the live render reads frozen state while the
+/// merchant edits draft fields on this same row.
+model MerchantSiteConfig {
+  id         Int      @id @default(autoincrement())
+  merchantId Int      @unique
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  // Draft: typography
+  displayFontFamily String?
+  bodyFontFamily    String?
+
+  // Draft: branding / chrome
+  logoUrl    String?
+  faviconUrl String?
+  ogImageUrl String?
+
+  // Draft: SEO
+  seoTitle       String?
+  seoDescription String?
+  siteName       String?
+
+  // Draft: behavior flags
+  isPublic           Boolean @default(true)
+  maintenanceMode    Boolean @default(false)
+  showPoweredBy      Boolean @default(true)
+  allowGuestCheckout Boolean @default(true)
+
+  // Draft: integrations
+  googleAnalyticsId String?
+
+  // Draft: theme
+  pageSurfaceColor String?
+
+  // Site subdomain slug (e.g., "mystore" for mystore.jungle.baby)
+  // Must be unique, lowercase, alphanumeric with hyphens
+  // Max 63 chars (DNS label limit)
+  slug String? @unique @db.VarChar(63)
+  
+  // Custom domain (e.g., "impressions.com" or "littleexplorers.sg")
+  // Merchant's own domain that points to their Jungle site
+  customDomain String? @unique @db.VarChar(255)
+
+  // Published snapshot of the draft config above. Live render reads from here.
+  publishedConfigJson Json?
+
+  // Lifecycle
+  hasDraftChanges Boolean   @default(false)
+  isPublished     Boolean   @default(false)
+  publishedAt     DateTime?
+  lastBuildAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pages        SitePage[]
+  chromeBlocks SiteChromeBlock[]
+
+  @@index([merchantId])
+}
+
+/// A page under a merchant's site config. `pageKey` is a stable system key
+/// (e.g. "home", "classes") used for system pages; `slug` is the public URL
+/// segment.
+model SitePage {
+  id           Int                @id @default(autoincrement())
+  siteConfigId Int
+  siteConfig   MerchantSiteConfig @relation(fields: [siteConfigId], references: [id], onDelete: Cascade)
+
+  slug            String
+  title           String
+  metaTitle       String?
+  metaDescription String?
+
+  isVisible    Boolean @default(true)
+  isPublished  Boolean @default(false)
+  displayOrder Int     @default(0)
+
+  pageKey            String
+  isSystem           Boolean @default(false)
+  productCategoryRef String?
+
+  // Published snapshot of this page's draft fields above.
+  publishedPageJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sections SiteSection[]
+
+  @@unique([siteConfigId, slug])
+  @@unique([siteConfigId, pageKey])
+  @@index([siteConfigId, isPublished])
+}
+
+/// A section on a page (hero, feature grid, contact, etc.).
+/// `type` is the discriminator that selects the shared TS content shape;
+/// `contentJson` carries the variant payload validated by the matching Zod
+/// schema in WebsiteDTOs.
+model SiteSection {
+  id     Int      @id @default(autoincrement())
+  pageId Int
+  page   SitePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  type         String
+  sectionKey   String
+  name         String
+  contentJson  Json
+  displayOrder Int     @default(0)
+  isVisible    Boolean @default(true)
+
+  // Published snapshot of the section's draft fields above.
+  publishedSectionJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  components SiteSectionComponent[]
+
+  @@unique([pageId, sectionKey])
+  @@index([pageId, displayOrder])
+}
+
+/// A component nested inside a section. Components carry no content of their
+/// own at the row level (parent section owns content via contentJson); they
+/// exist so the editor can reorder/toggle visibility per sub-element.
+model SiteSectionComponent {
+  id        Int         @id @default(autoincrement())
+  sectionId Int
+  section   SiteSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  componentKey String
+  name         String
+  isVisible    Boolean @default(true)
+  displayOrder Int     @default(0)
+
+  // Published snapshot of the component's draft fields above.
+  publishedComponentJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, componentKey])
+  @@index([sectionId, displayOrder])
+}
+
+/// Header / footer / nav blocks scoped to a site config (not a page).
+/// `blockKey` is a stable identifier ("header", "footer", "primary-nav").
+model SiteChromeBlock {
+  id           Int                @id @default(autoincrement())
+  siteConfigId Int
+  siteConfig   MerchantSiteConfig @relation(fields: [siteConfigId], references: [id], onDelete: Cascade)
+
+  blockKey    String
+  isVisible   Boolean @default(true)
+  contentJson Json
+
+  // Published snapshot of the chrome block's draft fields above.
+  publishedChromeJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([siteConfigId, blockKey])
+}
+
+// =============================================================================
+// AI merchant-config chat — agent loop + tool calls + eval logging.
+// Conversation/turns are DB-backed (the service process is stateless, rule 05)
+// and double as the eval-replay store. merchant/location/user are referenced by
+// scalar id (denormalized, append-only log tables) to avoid back-relations on
+// the core auth models; integrity within the Ai* subsystem uses real relations.
+// =============================================================================
+
+enum AI_TURN_ROLE {
+  USER
+  ASSISTANT
+  TOOL
+  SYSTEM
+}
+
+enum AI_PENDING_STATUS {
+  PENDING
+  CONFIRMED
+  DECLINED
+  EXPIRED
+}
+
+model AiConversation {
+  id               Int    @id @default(autoincrement())
+  aiConversationID String @unique @default(uuid())
+
+  // Verified, pinned scope for the whole conversation (client-supplied, then
+  // ownership-checked at creation). Scalar refs — no back-relation on the core
+  // models. The agent dispatcher pins these onto every tool call.
+  // locationId is OPTIONAL: a conversation may be merchant-scoped (no active
+  // location). When null, the agent resolves a target location on demand (the
+  // merchant's sole location, else it asks / guides them to add one).
+  merchantId Int
+  locationId Int?
+  userId     Int
+
+  model            String
+  systemPromptHash String
+
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  turns          AiTurn[]
+  pendingActions AiPendingAction[]
+
+  @@index([merchantId])
+  @@index([userId])
+}
+
+model AiTurn {
+  id       Int    @id @default(autoincrement())
+  aiTurnID String @unique @default(uuid())
+
+  conversationId Int
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  sequence Int
+  role     AI_TURN_ROLE
+  content  String       @db.Text
+
+  // Provider extras for exact replay: the assistant `tool_calls` array, and the
+  // OpenAI `tool_call_id` a TOOL turn replies to.
+  toolCallId String?
+  rawJson    Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, sequence])
+}
+
+model AiPendingAction {
+  id                Int    @id @default(autoincrement())
+  aiPendingActionID String @unique @default(uuid())
+  nonce             String @unique @default(uuid())
+
+  conversationId Int
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  toolName String
+  argsJson Json
+  status   AI_PENDING_STATUS @default(PENDING)
+
+  expiresAt  DateTime
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([nonce])
+}
+
+// =============================================================================
+// Concierge (parent-facing discovery chat). A PUBLIC, read-only conversational
+// layer over the unified search — distinct from the merchant AiConversation
+// above, which hard-requires merchantId + userId and is wired to RBAC + confirm
+// gates. The concierge has NO tenant and NO user: it's anonymous and searches
+// the whole PUBLIC catalogue. Persistence is keyed on the unguessable
+// `conciergeConversationID` uuid (the capability handle the client stores +
+// resends) — there is no numeric-id enumeration and no login. Reuses AI_TURN_ROLE.
+// =============================================================================
+
+model ConciergeConversation {
+  id                      Int    @id @default(autoincrement())
+  // The PUBLIC handle: an unguessable uuid the client stores (localStorage) and
+  // sends back to resume. This is the anonymous capability — never expose `id`.
+  conciergeConversationID String @unique @default(uuid())
+
+  model String
+
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  turns ConciergeTurn[]
+}
+
+model ConciergeTurn {
+  id Int @id @default(autoincrement())
+
+  conversationId Int
+  conversation   ConciergeConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  sequence Int
+  role     AI_TURN_ROLE
+  content  String       @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, sequence])
+}
+
+// =============================================================================
+// WhatsApp channel (Meta Cloud API). A new transport in front of the SAME agent
+// loop (runTurn / executeConfirmation). Scope is derived ONLY from a verified
+// WhatsappLink — never from the message payload — so the agent's existing
+// in-process RBAC/ownership re-check (src/agent/dispatch) stays valid here.
+// Inbound is processed async via a Postgres-backed queue (WhatsappInboundJob,
+// claimed with SELECT … FOR UPDATE SKIP LOCKED) so the webhook ACKs Meta in
+// <5s while a slow agent turn runs out-of-band. Scalar id refs (denormalized),
+// matching the Ai* subsystem above.
+// =============================================================================
+
+enum WHATSAPP_LINK_STATUS {
+  PENDING // link code issued, phone not yet bound
+  ACTIVE // phone bound + verified
+  REVOKED // unlinked by the merchant
+}
+
+enum WHATSAPP_JOB_STATUS {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+// A verified binding: one WhatsApp phone number → one user acting in one
+// merchant/location scope. v1 constraint: a phone maps to exactly ONE scope
+// (phoneE164 is unique). Re-linking a phone reassigns the existing row.
+model WhatsappLink {
+  id             Int    @id @default(autoincrement())
+  whatsappLinkID String @unique @default(uuid())
+
+  // Null until the one-time code is redeemed (PENDING → ACTIVE).
+  phoneE164  String? @unique
+  merchantId Int
+  locationId Int?
+  userId     Int
+
+  status WHATSAPP_LINK_STATUS @default(PENDING)
+
+  // One-time linking code: high-entropy, single-use, short-lived. Cleared on bind.
+  linkCode      String?   @unique
+  codeExpiresAt DateTime?
+
+  // Conversation reuse: continue activeConversationId while inbound activity is
+  // recent (idle window); a "reset"/"new chat" keyword starts a fresh one.
+  activeConversationId Int?
+  lastInboundAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([userId])
+}
+
+// Inbound webhook queue. The webhook validates + enqueues + ACKs 200; the worker
+// claims and processes. providerMessageId is unique → Meta redeliveries dedupe.
+model WhatsappInboundJob {
+  // Internal infra (a queue) — never exposed via the API, so no public uuid (it
+  // would only add per-row write/index cost on a hot table). Dedupe/identity is
+  // the providerMessageId.
+  id Int @id @default(autoincrement())
+
+  // Idempotency key: the Meta `messages[].id`. A redelivered webhook is a no-op.
+  providerMessageId String @unique
+
+  phoneE164 String
+  payload   Json // the single message object (text or interactive button reply)
+
+  status   WHATSAPP_JOB_STATUS @default(PENDING)
+  attempts Int                 @default(0)
+  lockedAt DateTime? // visibility-timeout marker for SKIP LOCKED claiming
+  error    String?             @db.Text
+
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status, createdAt])
+}
+
+// Stored output of the AI Security Evaluation dashboard. One row per category run
+// (e.g. "prompt-injection"): the per-scenario verdicts (`results`) and the
+// aggregate `summary` are kept as JSON — the dashboard owns their shape, and we
+// only ever read them back wholesale to render the saved report. Scalar
+// merchant/createdBy refs (no back-relation) since this is an admin-side artifact,
+// not merchant-owned data.
+model AiEvalReport {
+  id             Int    @id @default(autoincrement())
+  aiEvalReportID String @unique @default(uuid())
+
+  merchantId Int
+  categoryId String
+  // userId that ran the evaluation.
+  createdBy  Int
+
+  // Rollup metrics, denormalized from `summary` for cheap listing/filtering.
+  totalScenarios   Int
+  passedScenarios  Int
+  failedScenarios  Int
+  averageScore     Int
+  criticalFailures Int
+  evaluationMethod String
+  fallbackCount    Int
+
+  // EvaluationResult[] and the summary object, verbatim from the run.
+  results Json
+  summary Json
+
+  isArchived Boolean   @default(false)
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId])
+  @@index([categoryId])
+}

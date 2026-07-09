@@ -1,0 +1,47 @@
+export enum HTTPS_STATUS_CODE {
+  OK = 200,
+  CREATED = 201,
+  NO_CONTENT = 204,
+  BAD_REQUEST = 400,
+  UNAUTHORIZED = 401,
+  FORBIDDEN = 403,
+  NOT_FOUND = 404,
+  LOCKED = 423,
+  TOO_MANY_REQUESTS = 429,
+  INTERNAL_SERVER_ERROR = 500,
+  SERVICE_UNAVAILABLE = 503,
+}
+
+export enum HTTP_HEADER {
+  AUTH = "authorization",
+  USER_AGENT = "user-agent",
+  FORWARDED_FOR = "x-forwarded-for",
+  REAL_IP = "x-real-ip",
+  REFRESH_TOKEN = "x-refresh-token",
+  STRIPE_SIGNATURE = "stripe-signature",
+  WHATSAPP_SIGNATURE = "x-hub-signature-256",
+}
+
+export enum ROLE_SCOPE {
+  PLATFORM = "platform",
+  MERCHANT = "merchant",
+  LOCATION = "location",
+}
+
+export enum PLATFORM_ROLE {
+  SUPER_ADMIN = "SUPER_ADMIN",
+  BS_MANAGER = "BS_MANAGER",
+  MP_MANAGER = "MP_MANAGER",
+  USER = "USER",
+}
+
+export enum MERCHANT_ROLE {
+  BUSINESS_OWNER = "BUSINESS_OWNER",
+  MERCHANT_ADMIN = "MERCHANT_ADMIN",
+}
+
+export enum LOCATION_ROLE {
+  LOCATION_ADMIN = "LOCATION_ADMIN",
+  LOCATION_STAFF = "LOCATION_STAFF",
+  LOCATION_INSTRUCTOR = "LOCATION_INSTRUCTOR",
+}
