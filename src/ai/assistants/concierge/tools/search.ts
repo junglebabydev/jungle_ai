@@ -250,6 +250,11 @@ async function runSearch(
     sections: ctx.scoped ? ["products"] : ctx.sections,
     // Product-type tab scope (include=CAMP/CLASS/…) — server-pinned, model can't widen.
     productTypes: ctx.scoped ? undefined : ctx.productTypes,
+    // The chat answers one question at a time: when the ask names a type ("holiday
+    // camps for a 5 year old"), providers and packages aren't answers to it and
+    // would bury the activities that are. The card-grid browse doesn't opt in — it
+    // shows whichever sections its tab asked for.
+    productsOnlyWhenTypeGrounded: true,
   };
   const response = await searchClient.search(input);
   return {
