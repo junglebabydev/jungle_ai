@@ -40,7 +40,7 @@ const SearchToolInput = z.object({
   query: z
     .string()
     .describe(
-      "The ACTIVITY ('swimming', 'piano', 'coding') OR a PROVIDER/BRAND NAME the parent mentioned — the search matches provider names too, so pass a name through as-is (don't shorten it). Correct obvious misspellings to the intended activity ('swiming' → 'swimming'). Strip everything else: NO age, area, price, day or time words, and NO filler ('best', 'good', 'classes', 'camps', 'for my kid'). Put those in their own fields. Use \"\" only to browse by filters alone.",
+      "The ACTIVITY ('swimming', 'piano', 'coding') OR a PROVIDER/BRAND NAME the parent mentioned — the search matches provider names too, so pass a name through as-is (don't shorten it). Correct obvious misspellings to the intended activity ('swiming' → 'swimming'). Strip everything else: NO age, area, price, day or time words, NO filler ('best', 'good', 'classes', 'camps', 'for my kid'), and NO circumstance the parent is describing ('rainy days', 'school holidays', 'the weekend', 'a birthday present', 'somewhere fun') — a circumstance is not an activity, and searching those words matches almost nothing. When the message names no activity and no provider, pass \"\" and let the filters carry the search: that is the RIGHT answer for an ask like 'indoor activities for rainy days' (→ \"\" with locationType INDOOR), not a fallback.",
     ),
   age: z
     .number()
