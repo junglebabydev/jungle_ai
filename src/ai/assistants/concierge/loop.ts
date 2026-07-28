@@ -44,7 +44,7 @@ import {
   CONCIERGE_TOOLS_BY_NAME,
 } from "./tools/registry";
 import { ConciergeToolContext } from "./tools/types";
-import { namedProductType } from "./tools/search";
+import { namedPackages, namedProductType } from "./tools/search";
 import { VenueContext, buildVenueContext } from "./venueContext";
 
 /** Parent-facing refusal — the shared merchant SAFE_REFUSAL talks about managing
@@ -592,6 +592,14 @@ export async function runConciergeTurn(
     // still about camps. Newest statement wins, so switching to "classes" is
     // followed immediately.
     askedProductType: askedProductTypeFor(userMessage, history),
+    // Asking about a package once keeps them in scope for the refinements that
+    // follow, the same way a named activity kind does.
+    askedForPackages:
+      namedPackages(userMessage) ||
+      history.some(
+        (turn) =>
+          turn.role === AI_TURN_ROLE.USER && namedPackages(turn.content || ""),
+      ),
     // The remaining FE filter fields (age/district/trail/day-time/…), pinned. An FE
     // age chip wins; otherwise pin the age we parsed from the conversation so the
     // search always grounds it (age-fit) even when the model forgets to pass it.

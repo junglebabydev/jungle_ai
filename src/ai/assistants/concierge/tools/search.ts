@@ -7,6 +7,7 @@ import {
 import { searchClient } from "../../../../lib/searchClient";
 import {
   SearchResponseDTO,
+  SearchSection,
   StructuredSearchInput,
 } from "../../../../shared/dtos/SearchDTOs";
 import { ConciergeTool, ConciergeToolContext } from "./types";
@@ -215,12 +216,39 @@ const OFFERING_WORD_TYPES: ReadonlyArray<readonly [RegExp, PRODUCT_TYPE]> = [
  * already stripped out of it. Returns null when they named none or more than one,
  * so an open-ended ask still gets the full mixed grid.
  */
+/**
+ * True when the parent asked about buying a PACKAGE — a prepaid plan, membership
+ * or bundle — rather than about something to do. Packages answer "what should I
+ * buy", activities answer "what can we do", so the two asks want different rows.
+ */
+export function namedPackages(userMessage: string): boolean {
+  return /\b(?:packages?|memberships?|bundles?)\b/i.test(userMessage);
+}
+
 export function namedProductType(userMessage: string): PRODUCT_TYPE | null {
   const named = new Set<PRODUCT_TYPE>();
   for (const [pattern, productType] of OFFERING_WORD_TYPES) {
     if (pattern.test(userMessage)) named.add(productType);
   }
   return named.size === 1 ? [...named][0] : null;
+}
+
+/**
+ * The sections an open browse should return. A package is a prepaid plan, not an
+ * outing — a parent asking what to do on a rainy day is not asking to buy a
+ * membership, and package rows crowd out the activities that answer them. So
+ * packages stay out unless the parent asked for one, or is on the packages tab
+ * (where they are the entire point).
+ */
+function browseSections(
+  ctx: ConciergeToolContext,
+): SearchSection[] | undefined {
+  const sections = ctx.sections;
+  if (!sections?.length) return sections;
+  const isPackagesTab = sections.length === 1 && sections[0] === "packages";
+  if (isPackagesTab || ctx.askedForPackages) return sections;
+  const withoutPackages = sections.filter((section) => section !== "packages");
+  return withoutPackages.length ? withoutPackages : sections;
 }
 
 async function runSearch(
@@ -289,7 +317,8 @@ async function runSearch(
     // A merchantLocation chat is products-only; otherwise honour the FE tab —
     // except when the parent named the kind of thing they want, which answers the
     // question more precisely than the tab does (see `askedForType`).
-    sections: ctx.scoped || askedForType ? ["products"] : ctx.sections,
+    sections:
+      ctx.scoped || askedForType ? ["products"] : browseSections(ctx),
     // Product-type scope: the tab's pin (include=CAMP/CLASS/…) when there is one,
     // otherwise the type the parent named. Server-set either way; the model can't
     // widen it.
