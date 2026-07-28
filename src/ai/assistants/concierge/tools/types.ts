@@ -29,6 +29,9 @@ export type ConciergeToolContext = {
    *  carried across the conversation so a bare refinement ("in central") still
    *  searches camps. Null when they never named one, or named several. */
   askedProductType?: PRODUCT_TYPE | null;
+  /** True when the parent asked about a package, membership or bundle. Packages
+   *  are otherwise left out of an open browse — see `browseSections`. */
+  askedForPackages?: boolean;
   scope?: ConciergeScope;
   /** `Boolean(scope?.merchantId || scope?.locationId)` — true ⇒ merchant-location chat. */
   scoped: boolean;
