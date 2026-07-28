@@ -25,6 +25,10 @@ export type ConciergeToolContext = {
   /** Product-type tab scope (include=CAMP/CLASS/…), server-pinned into the search
    *  so the model can't widen past the tab the parent is viewing. */
   productTypes?: PRODUCT_TYPE[];
+  /** The kind of activity the parent asked for in their own words ("holiday camp"),
+   *  carried across the conversation so a bare refinement ("in central") still
+   *  searches camps. Null when they never named one, or named several. */
+  askedProductType?: PRODUCT_TYPE | null;
   scope?: ConciergeScope;
   /** `Boolean(scope?.merchantId || scope?.locationId)` — true ⇒ merchant-location chat. */
   scoped: boolean;

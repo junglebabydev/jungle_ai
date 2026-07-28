@@ -44,6 +44,7 @@ import {
   CONCIERGE_TOOLS_BY_NAME,
 } from "./tools/registry";
 import { ConciergeToolContext } from "./tools/types";
+import { namedProductType } from "./tools/search";
 import { VenueContext, buildVenueContext } from "./venueContext";
 
 /** Parent-facing refusal — the shared merchant SAFE_REFUSAL talks about managing
@@ -241,6 +242,32 @@ function activeFiltersNote(
  * intent from the replayed history. Reuses `parseSearchQuery`; no LLM call, no DB.
  * Returns null when nothing is established. The venue prompt has its own context.
  */
+/**
+ * The kind of activity the parent is asking about, carried across the turn the
+ * same way the rest of their stated context is. A refinement is rarely a whole
+ * sentence — after "camps for a 5 year old", the next message is just "in
+ * central", and read alone it names nothing. Scanning back through what they said
+ * keeps the search on camps; taking the newest statement first means switching to
+ * "classes" is honoured on the turn they say it.
+ */
+function askedProductTypeFor(
+  currentMessage: string,
+  history: ConciergeTurn[],
+): PRODUCT_TYPE | null {
+  const newestFirst = [
+    currentMessage,
+    ...history
+      .filter((turn) => turn.role === AI_TURN_ROLE.USER)
+      .map((turn) => turn.content)
+      .reverse(),
+  ];
+  for (const message of newestFirst) {
+    const named = namedProductType(message || "");
+    if (named) return named;
+  }
+  return null;
+}
+
 function accumulateContext(
   history: ConciergeTurn[],
   currentMessage: string,
@@ -560,6 +587,11 @@ export async function runConciergeTurn(
     region: input.region,
     // Product-type tab scope (include=CAMP/CLASS/…), pinned server-side.
     productTypes: input.productTypes,
+    // The kind of activity the parent named carries forward like the rest of the
+    // conversation context: after "camps for a 5 year old", a bare "in central" is
+    // still about camps. Newest statement wins, so switching to "classes" is
+    // followed immediately.
+    askedProductType: askedProductTypeFor(userMessage, history),
     // The remaining FE filter fields (age/district/trail/day-time/…), pinned. An FE
     // age chip wins; otherwise pin the age we parsed from the conversation so the
     // search always grounds it (age-fit) even when the model forgets to pass it.
