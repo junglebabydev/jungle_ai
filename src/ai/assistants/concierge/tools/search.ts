@@ -215,7 +215,7 @@ const OFFERING_WORD_TYPES: ReadonlyArray<readonly [RegExp, PRODUCT_TYPE]> = [
  * already stripped out of it. Returns null when they named none or more than one,
  * so an open-ended ask still gets the full mixed grid.
  */
-function namedProductType(userMessage: string): PRODUCT_TYPE | null {
+export function namedProductType(userMessage: string): PRODUCT_TYPE | null {
   const named = new Set<PRODUCT_TYPE>();
   for (const [pattern, productType] of OFFERING_WORD_TYPES) {
     if (pattern.test(userMessage)) named.add(productType);
@@ -250,9 +250,7 @@ async function runSearch(
   // the grid fills with rows that can't answer the ask. An active type tab
   // already says the same thing, so it wins; a venue chat is products-only anyway.
   const askedForType =
-    ctx.scoped || ctx.productTypes?.length
-      ? null
-      : namedProductType(ctx.userMessage);
+    ctx.scoped || ctx.productTypes?.length ? null : (ctx.askedProductType ?? null);
   const input: StructuredSearchInput = {
     query:
       inferredTrails.length && isGenericExplorerMapQuery(modelQuery)
