@@ -154,6 +154,11 @@ export type StructuredSearchInput = {
    *  DROP_IN/EVENT). Server-set (never model-supplied); overrides any type the
    *  category chips implied, so `include=CAMP` returns only camps. */
   productTypes?: PRODUCT_TYPE[];
+  /** Opt in to dropping the provider and package sections whenever a product type
+   *  is grounded from the request, so a typed ask ("holiday camps") comes back as
+   *  activities of that type alone. Off by default — a caller that wants the mixed
+   *  grid simply omits it. */
+  productsOnlyWhenTypeGrounded?: boolean;
 };
 
 /**
