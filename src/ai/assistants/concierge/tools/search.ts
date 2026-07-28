@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LOCATION_TYPE } from "@prisma/client";
+import { LOCATION_TYPE, PRODUCT_TYPE } from "@prisma/client";
 import {
   ACTIVITY_CATEGORIES,
   SEARCH_REGIONS,
@@ -190,6 +190,39 @@ function compactResults(
   };
 }
 
+/** The words a parent uses to name the KIND of thing they want, and the product
+ *  type that answers each. Drop-in is tested first so its hyphen/space spellings
+ *  can't be shadowed by a looser pattern. A ticket, and a pass qualified as a
+ *  single visit, are how a drop-in is sold — asking for one is asking for a
+ *  drop-in. A bare "pass" is deliberately NOT here: most passes in the catalogue
+ *  are class bundles ("Mastery Pass", "10-Class Pass"), so it would point the
+ *  wrong way. */
+const OFFERING_WORD_TYPES: ReadonlyArray<readonly [RegExp, PRODUCT_TYPE]> = [
+  [
+    /\b(?:drop[\s-]?ins?|tickets?|(?:day|entry|visit|play|single)[\s-]?passe?s?)\b/i,
+    PRODUCT_TYPE.DROP_IN,
+  ],
+  [/\bcamps?\b/i, PRODUCT_TYPE.CAMP],
+  [/\b(?:classes|class|lessons?|courses?)\b/i, PRODUCT_TYPE.CLASS],
+  [/\b(?:birthdays?|parties|party)\b/i, PRODUCT_TYPE.BIRTHDAY],
+  [/\bevents?\b/i, PRODUCT_TYPE.EVENT],
+];
+
+/**
+ * The product type the parent named in their own words ("holiday camp for a 5
+ * year old"). Read from the parent's message rather than the model's search term,
+ * because that term is the ACTIVITY ("swimming") with the kind of offering
+ * already stripped out of it. Returns null when they named none or more than one,
+ * so an open-ended ask still gets the full mixed grid.
+ */
+function namedProductType(userMessage: string): PRODUCT_TYPE | null {
+  const named = new Set<PRODUCT_TYPE>();
+  for (const [pattern, productType] of OFFERING_WORD_TYPES) {
+    if (pattern.test(userMessage)) named.add(productType);
+  }
+  return named.size === 1 ? [...named][0] : null;
+}
+
 async function runSearch(
   args: unknown,
   ctx: ConciergeToolContext,
@@ -211,6 +244,15 @@ async function runSearch(
   const pf = ctx.pinnedFilters ?? {};
   const pin = <T>(pinned: T | undefined, model: T): T =>
     pinned !== undefined ? pinned : model;
+  // When the parent names the kind of thing they want, that IS the question:
+  // answer it with those activities alone. A provider or a package is not a camp,
+  // and a generic word like "camp" otherwise keyword-matches provider NAMES, so
+  // the grid fills with rows that can't answer the ask. An active type tab
+  // already says the same thing, so it wins; a venue chat is products-only anyway.
+  const askedForType =
+    ctx.scoped || ctx.productTypes?.length
+      ? null
+      : namedProductType(ctx.userMessage);
   const input: StructuredSearchInput = {
     query:
       inferredTrails.length && isGenericExplorerMapQuery(modelQuery)
@@ -246,15 +288,18 @@ async function runSearch(
     timeOfDay: pin(pf.timeOfDay, a.timeOfDay),
     page: a.page,
     pageSize: RESULTS_PAGE_SIZE,
-    // A merchantLocation chat is products-only; otherwise honour the FE tab.
-    sections: ctx.scoped ? ["products"] : ctx.sections,
-    // Product-type tab scope (include=CAMP/CLASS/…) — server-pinned, model can't widen.
-    productTypes: ctx.scoped ? undefined : ctx.productTypes,
-    // The chat answers one question at a time: when the ask names a type ("holiday
-    // camps for a 5 year old"), providers and packages aren't answers to it and
-    // would bury the activities that are. The card-grid browse doesn't opt in — it
-    // shows whichever sections its tab asked for.
-    productsOnlyWhenTypeGrounded: true,
+    // A merchantLocation chat is products-only; otherwise honour the FE tab —
+    // except when the parent named the kind of thing they want, which answers the
+    // question more precisely than the tab does (see `askedForType`).
+    sections: ctx.scoped || askedForType ? ["products"] : ctx.sections,
+    // Product-type scope: the tab's pin (include=CAMP/CLASS/…) when there is one,
+    // otherwise the type the parent named. Server-set either way; the model can't
+    // widen it.
+    productTypes: ctx.scoped
+      ? undefined
+      : askedForType
+        ? [askedForType]
+        : ctx.productTypes,
   };
   const response = await searchClient.search(input);
   return {
