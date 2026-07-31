@@ -292,6 +292,7 @@ async function runSearch(
     merchantId: ctx.scope?.merchantId,
     locationId: ctx.scope?.locationId,
     merchantIds: ctx.merchantIds,
+    groupByMerchant: ctx.groupByMerchant,
     age: pin(pf.age, a.age),
     district: pin(pf.district, a.district),
     nearDistrict: pin(pf.nearDistrict, a.nearDistrict),

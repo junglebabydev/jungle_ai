@@ -39,6 +39,9 @@ export type ConciergeToolContext = {
    *  when the parent hasn't said what they want yet, so the grid shows a featured
    *  selection instead of an arbitrary slice of the whole catalogue. */
   merchantIds?: number[];
+  /** Ask the search to spread results across `merchantIds` rather than rank them
+   *  purely by relevance — a curated grid needs every provider represented. */
+  groupByMerchant?: boolean;
   /** FE-selected filter chips, server-pinned: when set they OVERRIDE the model's
    *  inferred category/region in the search. One value or an array. */
   category?: string | string[];
