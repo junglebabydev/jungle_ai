@@ -1,4 +1,5 @@
 import { LruTtlCache } from "../../../lib/cache/lruTtlCache";
+import { searchClient } from "../../../lib/searchClient";
 import { ServiceLocator } from "../../../services";
 import { SearchResponseDTO } from "../../../shared/dtos/SearchDTOs";
 import { CONCIERGE_TOOLS_BY_NAME } from "./tools/registry";
@@ -120,6 +121,49 @@ export function _resetFeaturedCache(): void {
 }
 
 /**
+ * Products fetched per provider for the shop window. A card states what a provider
+ * offers — every format it runs, and its true lowest price — so it needs that
+ * provider's whole catalogue, not a sample: fetch three of nine and the card claims
+ * fewer formats than the provider actually has. High enough to cover a provider
+ * outright, capped because each product is a full card payload and one provider
+ * with dozens of near-identical classes would bloat the grid for no added meaning.
+ */
+const PRODUCTS_PER_FEATURED_MERCHANT = Number(
+  process.env.CONCIERGE_FEATURED_PRODUCTS_PER_MERCHANT || 20,
+);
+
+/**
+ * A few products for EACH featured provider, fetched per provider and merged.
+ *
+ * One combined search can't do this: it returns the page in relevance order, so a
+ * provider with sixty products fills it and the rest of the shortlist arrives with
+ * nothing to show. Asking the engine to group by provider would need `merchantId`
+ * faceted, which it isn't. Per-provider searches are small, run in parallel, and
+ * the result is cached — so the cost lands once per cache window, not per turn.
+ */
+async function productsPerMerchant(
+  merchantIds: number[],
+  constraints: Record<string, unknown>,
+): Promise<SearchResponseDTO["products"]["data"]> {
+  const perMerchant = await Promise.all(
+    merchantIds.map((merchantId) =>
+      searchClient
+        .search({
+          query: "",
+          ...constraints,
+          merchantId,
+          sections: ["products"],
+          page: 1,
+          pageSize: PRODUCTS_PER_FEATURED_MERCHANT,
+        })
+        // One provider failing must not empty the whole shop window.
+        .catch(() => null),
+    ),
+  );
+  return perMerchant.flatMap((res) => res?.products?.data ?? []);
+}
+
+/**
  * The opening grid for a parent who hasn't said what they want: a browse limited to
  * the featured providers, honouring any age or area they did mention. Runs through
  * the normal search tool so the cards, hydration and section handling are identical
@@ -152,10 +196,6 @@ export async function featuredResults(
         {
           ...ctx,
           merchantIds,
-          // One card per provider, so every featured provider needs products of
-          // its own — otherwise the busiest one fills the page and the rest render
-          // as bare cards with no price or categories.
-          groupByMerchant: true,
           // Nothing was named, so nothing inferred from the wording should narrow
           // the shortlist — only what the parent actually stated, passed as args.
           userMessage: "",
@@ -163,7 +203,17 @@ export async function featuredResults(
           askedProductType: null,
         },
       );
-      return out.cards ?? null;
+      const cards = out.cards ?? null;
+      if (!cards) return null;
+
+      // The combined search gives the provider rows and the response envelope;
+      // the products it returns are skewed to whichever provider has the most, so
+      // replace them with an even spread across the shortlist.
+      const data = await productsPerMerchant(merchantIds, args);
+      return {
+        ...cards,
+        products: { ...cards.products, data, total: data.length },
+      };
     };
 
     const constrained = await browse(constraints);
