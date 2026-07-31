@@ -30,13 +30,15 @@ async function reindexForSearch(id: string | number): Promise<void> {
 }
 
 /**
- * The curated shop window, newest curation rules applied: only live merchants, in
- * the admin's chosen order. An unordered entry sorts last rather than dropping out,
- * so forgetting to set a position never silently removes a provider.
+ * The curated shop window, in the admin's chosen order. Featuring is a deliberate
+ * editorial act, so the only thing that can override it is the merchant being
+ * archived — `isActive` tracks a different concern entirely and must not silently
+ * veto a pick. An unordered entry sorts last rather than dropping out, so
+ * forgetting to set a position never removes a provider either.
  */
 async function findFeaturedMerchantIds(): Promise<number[]> {
   const rows = await prisma.merchant.findMany({
-    where: { isFeatured: true, isArchived: false, isActive: true },
+    where: { isFeatured: true, isArchived: false },
     orderBy: [{ featuredOrder: "asc" }, { id: "asc" }],
     select: { id: true },
   });
