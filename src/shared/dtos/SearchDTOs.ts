@@ -131,6 +131,12 @@ export type StructuredSearchInput = {
    * want yet — while relevance still orders the rows.
    */
   merchantIds?: number[];
+  /**
+   * Spread the products across the providers instead of returning them in pure
+   * relevance order. The grid shows one card per provider, so without this the
+   * most prolific one fills the page and the rest arrive with nothing to show.
+   */
+  groupByMerchant?: boolean;
   age?: number;
   /** Exact area ("in/at X"). Validated against the DB district vocabulary. */
   district?: string;

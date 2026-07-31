@@ -152,6 +152,10 @@ export async function featuredResults(
         {
           ...ctx,
           merchantIds,
+          // One card per provider, so every featured provider needs products of
+          // its own — otherwise the busiest one fills the page and the rest render
+          // as bare cards with no price or categories.
+          groupByMerchant: true,
           // Nothing was named, so nothing inferred from the wording should narrow
           // the shortlist — only what the parent actually stated, passed as args.
           userMessage: "",
