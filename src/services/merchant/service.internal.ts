@@ -29,6 +29,20 @@ async function reindexForSearch(id: string | number): Promise<void> {
   await searchClient.reindex("merchants", id);
 }
 
+/**
+ * The curated shop window, newest curation rules applied: only live merchants, in
+ * the admin's chosen order. An unordered entry sorts last rather than dropping out,
+ * so forgetting to set a position never silently removes a provider.
+ */
+async function findFeaturedMerchantIds(): Promise<number[]> {
+  const rows = await prisma.merchant.findMany({
+    where: { isFeatured: true, isArchived: false, isActive: true },
+    orderBy: [{ featuredOrder: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
+}
+
 //////////////////////////////
 // Exports
 //////////////////////////////
@@ -36,4 +50,5 @@ async function reindexForSearch(id: string | number): Promise<void> {
 export const MerchantServiceInternal: IMerchantServiceInternal = {
   findMerchantById,
   reindexForSearch,
+  findFeaturedMerchantIds,
 };

@@ -95,6 +95,11 @@ export type SearchResponseDTO = {
    *  is never empty. The FE should label these as "no exact matches — nearby options",
    *  and confinement invariants (region/age) don't apply to a broadened set. */
   broadened?: boolean;
+  /** Set by the concierge when the parent hasn't said what they want yet and the
+   *  grid is a curated FEATURED selection rather than matches to a request. The FE
+   *  should title it as such — calling it "N results" would claim it answered a
+   *  question that was never asked. */
+  featured?: boolean;
 };
 
 /**
@@ -119,6 +124,13 @@ export type StructuredSearchInput = {
    */
   merchantId?: number;
   locationId?: number;
+  /**
+   * A hand-picked set of providers to draw the products from (server-pinned, like
+   * `merchantId`). Where `merchantId` pins one venue, this narrows to a curated
+   * shortlist — what a featured browse shows a parent who hasn't said what they
+   * want yet — while relevance still orders the rows.
+   */
+  merchantIds?: number[];
   age?: number;
   /** Exact area ("in/at X"). Validated against the DB district vocabulary. */
   district?: string;

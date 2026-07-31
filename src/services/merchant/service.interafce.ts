@@ -17,6 +17,12 @@ export interface IMerchantServiceInternal {
    * hooks when a child changes. Non-fatal; fire-and-forget friendly.
    */
   reindexForSearch(id: string | number): Promise<void>;
+  /**
+   * The providers a parent is shown before they've said what they want, in the
+   * order a platform admin curated. Ids only — the concierge hands them to search,
+   * which hydrates the cards.
+   */
+  findFeaturedMerchantIds(): Promise<number[]>;
 }
 
 export interface IMerchantService {

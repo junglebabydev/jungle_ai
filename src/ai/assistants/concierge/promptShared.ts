@@ -47,6 +47,18 @@ export const CONCIERGE_REPLY = [
 ].join("\n");
 
 /**
+ * Appended when the parent hasn't said what they want yet. The grid beside the
+ * reply is already showing a featured selection and no search runs this turn, so
+ * the only useful thing to do is ask what would narrow it down.
+ */
+export const CONCIERGE_OPENING_TURN = [
+  "THIS TURN:",
+  "- The parent has not said what they are looking for yet. The cards beside your message are a FEATURED selection of well-loved providers, not search results — so never describe them as matches to anything they asked for.",
+  "- Reply in 1 to 2 warm sentences: say a few favourites are up there to browse, then ask ONE question that would narrow it down — the child's age, the part of Singapore, or the kind of thing they're after.",
+  "- Do not guess what they want, do not list venues, and do not ask more than one question.",
+].join("\n");
+
+/**
  * Tag line: clickable follow-up SEARCH chips, the parent's easy next step when
  * refining or exploring results. Used on both surfaces.
  */

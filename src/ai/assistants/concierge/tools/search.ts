@@ -195,12 +195,14 @@ function compactResults(
  *  type that answers each. Drop-in is tested first so its hyphen/space spellings
  *  can't be shadowed by a looser pattern. A ticket, and a pass qualified as a
  *  single visit, are how a drop-in is sold — asking for one is asking for a
- *  drop-in. A bare "pass" is deliberately NOT here: most passes in the catalogue
- *  are class bundles ("Mastery Pass", "10-Class Pass"), so it would point the
- *  wrong way. */
+ *  drop-in. "Activity" belongs here too: it is the catalogue's word for a
+ *  turn-up-and-play session, so an ask for activities is an ask for drop-ins.
+ *  A bare "pass" is deliberately NOT here: most passes in the catalogue are
+ *  class bundles ("Mastery Pass", "10-Class Pass"), so it would point the wrong
+ *  way. */
 const OFFERING_WORD_TYPES: ReadonlyArray<readonly [RegExp, PRODUCT_TYPE]> = [
   [
-    /\b(?:drop[\s-]?ins?|tickets?|(?:day|entry|visit|play|single)[\s-]?passe?s?)\b/i,
+    /\b(?:drop[\s-]?ins?|tickets?|activit(?:y|ies)|(?:day|entry|visit|play|single)[\s-]?passe?s?)\b/i,
     PRODUCT_TYPE.DROP_IN,
   ],
   [/\bcamps?\b/i, PRODUCT_TYPE.CAMP],
@@ -289,6 +291,7 @@ async function runSearch(
     // tab the parent is viewing nor widen out of the pinned venue.
     merchantId: ctx.scope?.merchantId,
     locationId: ctx.scope?.locationId,
+    merchantIds: ctx.merchantIds,
     age: pin(pf.age, a.age),
     district: pin(pf.district, a.district),
     nearDistrict: pin(pf.nearDistrict, a.nearDistrict),

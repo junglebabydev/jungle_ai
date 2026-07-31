@@ -367,6 +367,12 @@ model Merchant {
   isVerified Boolean   @default(false)
   verifiedAt DateTime?
 
+  // Curated shop window: the providers shown to a parent who hasn't said what they
+  // want yet. Hand-picked by a platform admin rather than ranked, so it needs to be
+  // editable without a deploy. `featuredOrder` sorts the list; null sorts last.
+  isFeatured    Boolean @default(false)
+  featuredOrder Int?
+
   isActive   Boolean @default(true)
   isArchived Boolean @default(false)
 
@@ -395,6 +401,8 @@ model Merchant {
 
   // Merchant media library (Canva-style uploads panel)
   merchantMedia MerchantMedia[]
+
+  @@index([isFeatured, featuredOrder])
 }
 
 model MerchantMedia {
