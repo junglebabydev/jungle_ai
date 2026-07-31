@@ -35,6 +35,10 @@ export type ConciergeToolContext = {
   scope?: ConciergeScope;
   /** `Boolean(scope?.merchantId || scope?.locationId)` — true ⇒ merchant-location chat. */
   scoped: boolean;
+  /** A curated shortlist of providers to draw the results from, server-pinned. Set
+   *  when the parent hasn't said what they want yet, so the grid shows a featured
+   *  selection instead of an arbitrary slice of the whole catalogue. */
+  merchantIds?: number[];
   /** FE-selected filter chips, server-pinned: when set they OVERRIDE the model's
    *  inferred category/region in the search. One value or an array. */
   category?: string | string[];

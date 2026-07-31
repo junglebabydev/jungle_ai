@@ -45,6 +45,8 @@ import {
 } from "./tools/registry";
 import { ConciergeToolContext } from "./tools/types";
 import { namedPackages, namedProductType } from "./tools/search";
+import { featuredResults, isVagueAsk } from "./featuredBrowse";
+import { CONCIERGE_OPENING_TURN } from "./promptShared";
 import { VenueContext, buildVenueContext } from "./venueContext";
 
 /** Parent-facing refusal — the shared merchant SAFE_REFUSAL talks about managing
@@ -271,6 +273,7 @@ function askedProductTypeFor(
 function accumulateContext(
   history: ConciergeTurn[],
   currentMessage: string,
+  districtMatchers?: ReturnType<typeof buildDistrictMatchers>,
 ): Record<string, unknown> {
   const userMsgs = [
     ...history
@@ -280,7 +283,9 @@ function accumulateContext(
   ];
   const acc: Record<string, unknown> = {};
   for (const msg of userMsgs) {
-    const { filters, cleanedQuery } = parseSearchQuery(msg || "");
+    const { filters, cleanedQuery } = parseSearchQuery(msg || "", {
+      districtMatchers,
+    });
     if (cleanedQuery && cleanedQuery.trim()) acc.activity = cleanedQuery.trim();
     for (const k of [
       "age",
@@ -547,15 +552,40 @@ export async function runConciergeTurn(
   // whole conversation, then (a) re-state it as an explicit note so a refinement can't
   // silently drop the activity, and (b) PIN the accumulated age server-side below so
   // age-fit is guaranteed regardless of whether the model remembers to pass it.
-  const ctxAcc = scoped ? null : accumulateContext(history, userMessage);
+  // The district list is what lets "in tampines" read as an AREA rather than as
+  // the thing they want to do — without it the district name survives as the
+  // activity term and a plain "what can we do in tampines" looks specific. Cached
+  // for a long TTL and single-flight, so this costs nothing after the first turn.
+  const districtMatchers = scoped ? undefined : await getDistrictMatchers();
+  const ctxAcc = scoped
+    ? null
+    : accumulateContext(history, userMessage, districtMatchers);
   const carryNote = ctxAcc ? renderCarryNote(ctxAcc) : null;
   const carriedAge =
     ctxAcc && typeof ctxAcc.age === "number" ? (ctxAcc.age as number) : undefined;
 
+  // The kind of offering the parent named, needed both to pin the search and to
+  // judge (below) whether they've said anything to search on at all.
+  const askedProductType = askedProductTypeFor(userMessage, history);
+
+  // An opening "hi" or "what is there to do" has nothing to search for, so this
+  // turn shows the featured providers and asks what they're after. Deciding it here
+  // — deterministically, before any model call — is what makes the turn fast: the
+  // model is offered no tools, so it answers in ONE call instead of deciding on a
+  // search first, and the featured fetch runs alongside that call.
+  const vagueAsk =
+    !scoped &&
+    isVagueAsk(ctxAcc, Boolean(askedProductType) || namedPackages(userMessage), {
+      category: input.category,
+      productTypes: input.productTypes,
+    });
+
   const messages: OpenRouterMessage[] = [
     {
       role: "system",
-      content: [baseSystem, filtersNote, carryNote].filter(Boolean).join("\n\n"),
+      content: [baseSystem, filtersNote, carryNote, vagueAsk ? CONCIERGE_OPENING_TURN : null]
+        .filter(Boolean)
+        .join("\n\n"),
     },
     ...history.map(turnToMessage),
     { role: "user", content: userMessage },
@@ -591,7 +621,7 @@ export async function runConciergeTurn(
     // conversation context: after "camps for a 5 year old", a bare "in central" is
     // still about camps. Newest statement wins, so switching to "classes" is
     // followed immediately.
-    askedProductType: askedProductTypeFor(userMessage, history),
+    askedProductType,
     // Asking about a package once keeps them in scope for the refinements that
     // follow, the same way a named activity kind does.
     askedForPackages:
@@ -621,6 +651,21 @@ export async function runConciergeTurn(
   const modelRows: ChatModelEvent[] = [];
   const toolRows: ChatToolEvent[] = [];
   let turnError: string | null = null;
+
+  // Fetch the featured grid ALONGSIDE the model call rather than before it: with no
+  // tools to offer, the model's clarifying question and this search have nothing to
+  // say to each other, so the turn costs the slower of the two, not the sum.
+  let featuredPending: Promise<SearchResponseDTO | null> | null = null;
+  if (vagueAsk) {
+    tools = [];
+    featuredPending = featuredResults(searchCtx, ctxAcc).catch((e) => {
+      console.warn(
+        "[concierge] featured browse failed:",
+        e instanceof Error ? e.message : e,
+      );
+      return null;
+    });
+  }
 
   try {
     // SEARCH-FIRST (global discovery only, flag-gated): skip model round-trip #1.
@@ -896,6 +941,19 @@ export async function runConciergeTurn(
       modelRows,
       { error: turnError },
     );
+  }
+
+  // The opening grid, now that the reply is written. `guaranteeResults` below sees
+  // a full grid and stays out of the way; if the featured search failed it falls
+  // back to the normal broadening ladder, so the parent still gets cards.
+  if (featuredPending) {
+    const featured = await featuredPending;
+    if (featured) {
+      // Tell the FE these are a curated selection, not matches — the grid heading
+      // has to say so, or it claims to have answered a question nobody asked.
+      featured.featured = true;
+      results = featured;
+    }
   }
 
   // GUARANTEE DATA (global discovery only): never leave the parent with an empty grid.
