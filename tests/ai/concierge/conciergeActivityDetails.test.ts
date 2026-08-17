@@ -40,6 +40,13 @@ jest.mock("../../../src/services", () => ({
           details: { description: "Learn-to-swim specialists." },
         }),
       },
+      // Every turn builds district matchers from the live district list before it
+      // reaches the model, so the loop throws without this even on venue-only cases.
+      internal: {
+        getDistinctDistricts: jest
+          .fn()
+          .mockResolvedValue(["Tampines", "Punggol", "Orchard", "Bishan"]),
+      },
     },
     PricingService: { public: { listPricingByProduct: jest.fn() } },
     PackageTemplateService: {
@@ -73,6 +80,7 @@ import {
   runConciergeTurn,
   _resetVenueContextCache,
 } from "../../../src/ai/assistants/concierge/loop";
+import { _resetSearchCache } from "../../../src/ai/assistants/concierge/tools/search";
 
 const streamMock = streamChatCompletion as jest.Mock;
 const search = searchClient.search as jest.Mock;
@@ -218,6 +226,7 @@ const venueChat = (userMessage: string, conversationId = 1) =>
 beforeEach(() => {
   jest.clearAllMocks();
   _resetVenueContextCache();
+  _resetSearchCache();
   // Default: the venue has one CLASS, no pricing / packages / schedule / sessions.
   search.mockResolvedValue(searchWith(CLASS_PRODUCT));
   getRecentTurns.mockResolvedValue([]);
@@ -496,7 +505,7 @@ describe("Google rating surfacing (gMapRating / reviewCount)", () => {
     expect(systemPrompt).toContain("123");
   });
 
-  it("includes rating + reviews in the global discovery search projection", async () => {
+  it("projects the venue rating under a name the model cannot misattribute", async () => {
     search.mockResolvedValue({
       query: "swim",
       parsed: {},
@@ -531,7 +540,11 @@ describe("Google rating surfacing (gMapRating / reviewCount)", () => {
     });
 
     const res = toolResult();
-    expect(res?.products[0]).toMatchObject({ rating: 4.8, reviews: 90 });
+    expect(res?.products[0]).toMatchObject({ venueRating: 4.8, venueReviews: 90 });
+    // The old names sat beside the activity's own name and ages, and the model read
+    // them as the activity's rating. There is no rating on Product at all.
+    expect(res?.products[0]).not.toHaveProperty("rating");
+    expect(res?.products[0]).not.toHaveProperty("reviews");
   });
 });
 

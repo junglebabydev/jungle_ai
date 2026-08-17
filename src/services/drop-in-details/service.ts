@@ -53,6 +53,7 @@ async function createDropIn(
           maxParents: dropInDetailsDTO.maxParents,
           whatsIncluded: dropInDetailsDTO.whatsIncluded,
           cancellationPolicy: dropInDetailsDTO.cancellationPolicy,
+          requiresPackage: dropInDetailsDTO.requiresPackage,
           notes: dropInDetailsDTO.notes,
           bookingUrl: dropInDetailsDTO.bookingUrl,
         },
@@ -379,6 +380,8 @@ async function updateDropIn(
             cancellationPolicy:
               dropInDetailsDTO.cancellationPolicy ??
               existing.cancellationPolicy,
+            requiresPackage:
+              dropInDetailsDTO.requiresPackage ?? existing.requiresPackage,
             notes: dropInDetailsDTO.notes ?? existing.notes,
             bookingUrl: dropInDetailsDTO.bookingUrl ?? existing.bookingUrl,
           },

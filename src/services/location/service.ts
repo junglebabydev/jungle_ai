@@ -61,6 +61,10 @@ async function createLocation(
           facebookUrl: dto.details.facebookUrl,
           phone: dto.details.phone,
           whatsApp: dto.details.whatsApp,
+          parking: dto.details.parking,
+          whatToBring: dto.details.whatToBring,
+          supervisionPolicy: dto.details.supervisionPolicy,
+          amenities: dto.details.amenities,
         },
       });
     }
@@ -187,6 +191,10 @@ async function updateLocation(
           facebookUrl: dto.details.facebookUrl ?? undefined,
           phone: dto.details.phone ?? undefined,
           whatsApp: dto.details.whatsApp ?? undefined,
+          parking: dto.details.parking ?? undefined,
+          whatToBring: dto.details.whatToBring ?? undefined,
+          supervisionPolicy: dto.details.supervisionPolicy ?? undefined,
+          amenities: dto.details.amenities ?? undefined,
         },
         create: {
           locationId: updated.id,
@@ -200,6 +208,10 @@ async function updateLocation(
           facebookUrl: dto.details.facebookUrl,
           phone: dto.details.phone,
           whatsApp: dto.details.whatsApp,
+          parking: dto.details.parking,
+          whatToBring: dto.details.whatToBring,
+          supervisionPolicy: dto.details.supervisionPolicy,
+          amenities: dto.details.amenities,
         },
       });
     }

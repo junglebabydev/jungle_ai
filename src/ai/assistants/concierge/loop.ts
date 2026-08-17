@@ -10,11 +10,12 @@ import { ServiceLocator } from "../../../services";
 import {
   parseSearchQuery,
   buildDistrictMatchers,
+  parseRetractions,
+  stripRetractionPhrases,
+  namesAnActivity,
+  CARRIED_FILTER_KEYS,
 } from "../../../utils/searchQueryParser";
-import {
-  deriveExplorerMapTrails,
-  inferActivityCategoriesFromText,
-} from "../../../shared/trails";
+import { inferActivityCategoriesFromText } from "../../../shared/trails";
 import { SearchResponseDTO, SearchSection } from "../../../shared/dtos/SearchDTOs";
 import {
   ConciergePinnedFilters,
@@ -46,7 +47,7 @@ import {
 import { ConciergeToolContext } from "./tools/types";
 import { namedPackages, namedProductType } from "./tools/search";
 import { featuredResults, isVagueAsk } from "./featuredBrowse";
-import { CONCIERGE_OPENING_TURN } from "./promptShared";
+import { CONCIERGE_OPENING_TURN, CONCIERGE_PROMPT_VERSION } from "./promptShared";
 import { VenueContext, buildVenueContext } from "./venueContext";
 
 /** Parent-facing refusal — the shared merchant SAFE_REFUSAL talks about managing
@@ -137,10 +138,11 @@ function getDistrictMatchers(): Promise<
  * lookups (merchant + location + catalogue) and is otherwise re-run on EVERY turn of
  * a chat even though the profile is effectively static within a conversation — so we
  * cache it for a short TTL. Single-flight (`getOrLoad`) also collapses the cold-start
- * stampede when several first-turns for the same place land together. The IN-TURN
- * `search_activities` tool call is NEVER cached (always live), so only the opening
- * ABOUT block + card seed can be up to TTL stale — an acceptable trade for dropping
- * 3 queries/turn. Per-process, no Redis (same design as the signed-URL cache).
+ * stampede when several first-turns for the same place land together. The in-turn
+ * `search_activities` call has its own, shorter cache (`tools/search.ts`), so both the
+ * opening ABOUT block and a repeated search can be up to their TTL stale — an
+ * acceptable trade for dropping 3 queries/turn plus a round-trip per repeat search.
+ * Per-process, no Redis (same design as the signed-URL cache).
  */
 const venueContextCache = new LruTtlCache<VenueContext>({
   max: Number(process.env.CONCIERGE_VENUE_CACHE_MAX || 200),
@@ -270,7 +272,28 @@ function askedProductTypeFor(
   return null;
 }
 
-function accumulateContext(
+/**
+ * Exported for tests: with `accumulateContext` these two ARE the multi-turn state
+ * contract, and it is provable without a model call.
+ *
+ * True when THIS message names a kind of activity different from the one already
+ * running. Only a real change counts: repeating "camps" is not a swap, and naming
+ * none leaves whatever they had alone.
+ */
+export function switchedProductType(
+  currentMessage: string,
+  history: ConciergeTurn[],
+): boolean {
+  const named = namedProductType(currentMessage || "");
+  if (!named) return false;
+  const previous = askedProductTypeFor(
+    "",
+    history.filter((turn) => turn.role === AI_TURN_ROLE.USER),
+  );
+  return previous != null && previous !== named;
+}
+
+export function accumulateContext(
   history: ConciergeTurn[],
   currentMessage: string,
   districtMatchers?: ReturnType<typeof buildDistrictMatchers>,
@@ -283,26 +306,21 @@ function accumulateContext(
   ];
   const acc: Record<string, unknown> = {};
   for (const msg of userMsgs) {
-    const { filters, cleanedQuery } = parseSearchQuery(msg || "", {
-      districtMatchers,
-    });
-    if (cleanedQuery && cleanedQuery.trim()) acc.activity = cleanedQuery.trim();
-    for (const k of [
-      "age",
-      "region",
-      "district",
-      "nearDistrict",
-      "maxPrice",
-      "cheap",
-      "freeTrial",
-      "dropIn",
-      "termBased",
-      "meals",
-      "transport",
-      "daysOfWeek",
-      "timeOfDay",
-      "locationType",
-    ] as const) {
+    // Retract BEFORE merging this message's own filters, so one message can drop a
+    // filter and set a new value for it: "forget the budget, make it under $300"
+    // must end at $300, not at nothing.
+    for (const key of parseRetractions(msg || "")) delete acc[key];
+
+    // Read filters from what's LEFT after the retraction phrases come out, or the
+    // words that asked for the clear are themselves read as filters and put it back.
+    const { filters, cleanedQuery } = parseSearchQuery(
+      stripRetractionPhrases(msg || ""),
+      { districtMatchers },
+    );
+    const candidate = namesAnActivity(cleanedQuery);
+    if (candidate) acc.activity = candidate;
+    for (const k of CARRIED_FILTER_KEYS) {
+      if (k === "activity") continue; // set from cleanedQuery above, not from filters
       const v = (filters as Record<string, unknown>)[k];
       if (v !== undefined) acc[k] = v;
     }
@@ -310,7 +328,10 @@ function accumulateContext(
   return acc;
 }
 
-function renderCarryNote(acc: Record<string, unknown>): string | null {
+function renderCarryNote(
+  acc: Record<string, unknown>,
+  { budgetClearedByTypeSwap = false }: { budgetClearedByTypeSwap?: boolean } = {},
+): string | null {
   const lines: string[] = [];
   if (acc.activity) lines.push(`- activity: ${acc.activity}`);
   if (acc.age != null) lines.push(`- age: ${acc.age}`);
@@ -318,7 +339,12 @@ function renderCarryNote(acc: Record<string, unknown>): string | null {
     lines.push(
       `- region: ${Array.isArray(acc.region) ? (acc.region as string[]).join(", ") : acc.region}`,
     );
-  if (acc.district) lines.push(`- area (in): ${acc.district}`);
+  if (acc.district)
+    lines.push(
+      Array.isArray(acc.district)
+        ? `- areas (in): ${(acc.district as string[]).join(", ")} — the parent named ONE word that covers all of these; SAY which areas you searched, never present it as just one of them`
+        : `- area (in): ${acc.district}`,
+    );
   if (acc.nearDistrict) lines.push(`- area (near): ${acc.nearDistrict}`);
   if (acc.maxPrice != null) lines.push(`- budget: under $${acc.maxPrice}`);
   else if (acc.cheap) lines.push(`- budget: cheapest / most affordable`);
@@ -326,6 +352,12 @@ function renderCarryNote(acc: Record<string, unknown>): string | null {
     lines.push(`- days: ${(acc.daysOfWeek as number[]).join(", ")}`);
   if (acc.timeOfDay) lines.push(`- time: ${acc.timeOfDay}`);
   if (acc.locationType) lines.push(`- venue type: ${acc.locationType}`);
+  // Say it out loud. Dropping the budget silently would be the same class of problem
+  // as carrying it silently — the parent set that number and is owed the change.
+  if (budgetClearedByTypeSwap)
+    lines.push(
+      "- budget cleared: the previous budget was for a different kind of activity and does not carry over — TELL the parent it no longer applies",
+    );
   if (!lines.length) return null;
   return (
     "SEARCH CONTEXT established this conversation — apply ALL of these to your " +
@@ -345,6 +377,86 @@ function totalCards(r: SearchResponseDTO | null): number {
     (r.merchants?.total ?? 0) +
     (r.packages?.total ?? 0)
   );
+}
+
+/**
+ * The parent-facing constraints the broadening ladder can give up, in the order a
+ * reply should mention them.
+ */
+const RELAXABLE = [
+  "activity",
+  "budget",
+  "category",
+  "schedule",
+  "format",
+  "area",
+  "region",
+  "age",
+] as const;
+type Relaxable = (typeof RELAXABLE)[number];
+
+/** What each rung gives up. Rung 1 keeps everything, so it has no entry. */
+const RUNG_2_DROPS: readonly Relaxable[] = ["activity"];
+const RUNG_3_DROPS: readonly Relaxable[] = [
+  "activity",
+  "budget",
+  "category",
+  "schedule",
+  "format",
+];
+const RUNG_4_DROPS: readonly Relaxable[] = RELAXABLE;
+
+/**
+ * Which constraints the parent actually gave us. The ladder may only claim to have
+ * dropped something they set — announcing a budget they never named would be its own
+ * falsehood, and the point of `relaxed` is to stop inventing, not to start.
+ */
+function constraintsGiven(
+  ctx: ConciergeToolContext,
+  parsedAge: number | undefined,
+  hasActivityTerm: boolean,
+): Set<Relaxable> {
+  const pf = ctx.pinnedFilters ?? {};
+  const given = new Set<Relaxable>();
+  if (hasActivityTerm) given.add("activity");
+  if (ctx.maxPrice != null || pf.cheap != null) given.add("budget");
+  if (ctx.category != null) given.add("category");
+  if (pf.daysOfWeek?.length || pf.timeOfDay != null) given.add("schedule");
+  if (
+    pf.freeTrial ||
+    pf.dropIn ||
+    pf.termBased ||
+    pf.meals ||
+    pf.transport ||
+    pf.locationType != null
+  )
+    given.add("format");
+  if (pf.district != null || pf.nearDistrict != null) given.add("area");
+  if (ctx.region != null) given.add("region");
+  if (pf.age != null || parsedAge != null) given.add("age");
+  return given;
+}
+
+/**
+ * Flag a rung's results as broadened and name what it cost the parent.
+ *
+ * Every rung below the first relaxes something, so every one of them must carry the
+ * flag — previously only the last did, which left the two rungs in between presenting
+ * a relaxed grid as an exact answer to BOTH the model and the frontend label. A rung
+ * that happened to drop nothing the parent set is left unflagged: it really is an
+ * answer to what they asked.
+ */
+function markBroadened(
+  cards: SearchResponseDTO | null,
+  given: Set<Relaxable>,
+  dropped: readonly Relaxable[],
+): SearchResponseDTO | null {
+  if (!cards) return cards;
+  const relaxed = RELAXABLE.filter((k) => dropped.includes(k) && given.has(k));
+  if (!relaxed.length) return cards;
+  cards.broadened = true;
+  cards.relaxed = relaxed;
+  return cards;
 }
 
 /**
@@ -378,13 +490,23 @@ async function guaranteeResults(
 
   const parsed = parseSearchQuery(userMessage).filters;
   const pf = searchCtx.pinnedFilters ?? {};
-  const term = parseSearchQuery(userMessage).cleanedQuery;
+  const term =
+    namesAnActivity(parseSearchQuery(userMessage).cleanedQuery) ??
+    searchCtx.carriedActivity ??
+    "";
+  const given = constraintsGiven(searchCtx, parsed.age, Boolean(term));
 
-  // 1 & 2 — stay within the parent's pins (activity term, then filter-only browse).
-  for (const query of term ? [term, ""] : [""]) {
-    const cards = await search(query, searchCtx);
+  // 1 — the parsed activity term with every pin intact. Nothing of theirs is given
+  // up, so a hit here is a real answer and carries no broadening flag.
+  if (term) {
+    const cards = await search(term, searchCtx);
     if (totalCards(cards) > 0) return cards;
   }
+
+  // 2 — filter-only browse: the pins stay, the activity term goes.
+  const browseCards = await search("", searchCtx);
+  if (totalCards(browseCards) > 0)
+    return markBroadened(browseCards, given, RUNG_2_DROPS);
 
   // 3 — broaden the topic but KEEP the hard scope (age + area). Clearing the message
   // stops the tool inferring a `trail` from it; a typed age lives in the message, so
@@ -401,7 +523,8 @@ async function guaranteeResults(
     },
   };
   const scopedCards = await search("", scopedCtx);
-  if (totalCards(scopedCards) > 0) return scopedCards;
+  if (totalCards(scopedCards) > 0)
+    return markBroadened(scopedCards, given, RUNG_3_DROPS);
 
   // 4 — relax the hard scope too and browse the whole tab; flag the result broadened.
   const wideCtx: ConciergeToolContext = {
@@ -413,10 +536,8 @@ async function guaranteeResults(
     pinnedFilters: undefined,
   };
   const wideCards = await search("", wideCtx);
-  if (totalCards(wideCards) > 0) {
-    wideCards!.broadened = true;
-    return wideCards;
-  }
+  if (totalCards(wideCards) > 0)
+    return markBroadened(wideCards, given, RUNG_4_DROPS);
   return current;
 }
 
@@ -446,13 +567,7 @@ function buildChildProfile(
   const mentionedActivities = [...seen];
   if (age == null && mentionedActivities.length === 0) return null;
 
-  const coverage = deriveExplorerMapTrails(mentionedActivities);
-  return {
-    age,
-    mentionedActivities,
-    exploredTrails: coverage.primaryTrails,
-    alsoExploredTrails: coverage.alsoBuildsTrails,
-  };
+  return { age, mentionedActivities };
 }
 
 /**
@@ -560,7 +675,18 @@ export async function runConciergeTurn(
   const ctxAcc = scoped
     ? null
     : accumulateContext(history, userMessage, districtMatchers);
-  const carryNote = ctxAcc ? renderCarryNote(ctxAcc) : null;
+  // A budget is only meaningful next to the kind of thing it was given for: $600 was
+  // a per-week camp figure, and as a per-session class ceiling it means nothing. So a
+  // swap drops it rather than silently carrying a number that no longer applies.
+  const budgetClearedByTypeSwap =
+    !!ctxAcc && ctxAcc.maxPrice != null && switchedProductType(userMessage, history);
+  if (budgetClearedByTypeSwap) {
+    delete ctxAcc!.maxPrice;
+    delete ctxAcc!.cheap;
+  }
+  const carryNote = ctxAcc
+    ? renderCarryNote(ctxAcc, { budgetClearedByTypeSwap })
+    : null;
   const carriedAge =
     ctxAcc && typeof ctxAcc.age === "number" ? (ctxAcc.age as number) : undefined;
 
@@ -622,6 +748,11 @@ export async function runConciergeTurn(
     // still about camps. Newest statement wins, so switching to "classes" is
     // followed immediately.
     askedProductType,
+    // The activity itself carries the same way — and is pinned rather than merely
+    // described in the prompt, exactly like `carriedAge` below. Left advisory it was
+    // dropped on about half of bare refinements, turning "any in the east?" into an
+    // unfiltered browse.
+    carriedActivity: (ctxAcc?.activity as string | undefined) ?? null,
     // Asking about a package once keeps them in scope for the refinements that
     // follow, the same way a named activity kind does.
     askedForPackages:
@@ -636,6 +767,13 @@ export async function runConciergeTurn(
     pinnedFilters: {
       ...input.pinnedFilters,
       age: input.pinnedFilters?.age ?? carriedAge,
+      // An FE area chip wins; otherwise pin the area(s) the parent's own words
+      // resolved to. When one word names a family ("bukit" → four planning areas)
+      // this is the whole family, so the search covers what they asked for rather
+      // than the one area the model would have guessed.
+      district:
+        input.pinnedFilters?.district ??
+        (ctxAcc?.district as string | string[] | undefined),
     },
   };
 
@@ -936,7 +1074,7 @@ export async function runConciergeTurn(
     // Fire-and-forget observability (cost / latency / tool-use / errors per turn),
     // anonymous (keyed on the conversation). Never blocks or breaks the turn.
     emitConciergeTelemetry(
-      { conversationId },
+      { conversationId, promptVersion: CONCIERGE_PROMPT_VERSION },
       toolRows,
       modelRows,
       { error: turnError },
@@ -984,22 +1122,28 @@ export async function runConciergeTurn(
     reply = reply.replace(/\n*[ \t]*SUGGESTIONS:[^\n]*\s*$/i, "").trimEnd();
   }
 
-  // Persist the turn OFF the response critical path (fire-and-forget). The reply and
-  // cards are already computed; the next turn isn't sent until the parent reads this
-  // one and types again, so the write reliably lands before it's needed. This removes
-  // appendTurns' count + insert (2 DB round-trips) from the tail of every turn. A
-  // failure is logged, never surfaced to the parent.
-  void conv
-    .appendTurns(conversationId, [
+  // Persist the turn BEFORE returning. This was fire-and-forget, on the assumption
+  // that the next turn only arrives once the parent has read this one and typed
+  // again — but a tapped suggestion chip, a fast follow-up, or any programmatic
+  // client beats the write. The next turn then reads an empty history, so the
+  // accumulated context is lost, `isVagueAsk` sees no activity, and a narrowing
+  // question ("any in the east?") answers as an unfiltered featured browse that
+  // asks the parent what their child likes — something they had just said.
+  //
+  // Two DB round-trips at the tail of a turn is the right price for the reply
+  // actually following on from the previous one. A failure is still logged rather
+  // than surfaced.
+  try {
+    await conv.appendTurns(conversationId, [
       { role: AI_TURN_ROLE.USER, content: userMessage },
       { role: AI_TURN_ROLE.ASSISTANT, content: reply },
-    ])
-    .catch((e) =>
-      console.warn(
-        "[concierge] turn persistence failed:",
-        e instanceof Error ? e.message : e,
-      ),
+    ]);
+  } catch (e) {
+    console.warn(
+      "[concierge] turn persistence failed:",
+      e instanceof Error ? e.message : e,
     );
+  }
 
   // A merchant-location chat is an independent STORE: return the lean store shape
   // (identity once + its activities, no empty merchants block, no per-product

@@ -3,7 +3,7 @@
  *
  * Mechanism: drive scripted "dumb merchant" conversations through the REAL
  * POST /ai/chat, then score DETERMINISTIC invariants read back from the DB tool
- * trace (AiToolCall) and the resulting Product / Merchant rows — the only way to
+ * trace (the persisted TOOL turns) and the resulting Product / Merchant rows — the only way to
  * score a STATEFUL, from-scratch sequence. The prose is non-deterministic;
  * the tool/DB invariants are not — so scoring is reproducible.
  *
@@ -162,19 +162,34 @@ export async function closeDb() {
 
 const safeJson = (s) => { try { return JSON.parse(s); } catch { return {}; } };
 
+/**
+ * Every tool the agent called this conversation, in order.
+ *
+ * The trace used to live in an `AiToolCall` table that no longer exists — assistant
+ * observability moved to PostHog. Reading it returned a missing-relation error that
+ * the runner caught as a harness error, so EVERY case failed regardless of the
+ * agent's behaviour. It now reads the TOOL turns the loop persists, whose `rawJson`
+ * carries the same fields (`toolName`, `argsJson`, `gated`, `isError`, `code`), so
+ * the assertion helpers below keep their exact meaning.
+ */
 export async function toolTrace(conversationId) {
   const rows = await sql(
-    `SELECT "toolName", "isError", coalesce(code, '') AS code, gated, "argsJson"::text AS args
-       FROM "AiToolCall" WHERE "conversationId" = $1 ORDER BY id`,
+    `SELECT "rawJson"::text AS raw
+       FROM "AiTurn"
+      WHERE "conversationId" = $1 AND role = 'TOOL' AND "rawJson" IS NOT NULL
+      ORDER BY sequence, id`,
     [conversationId],
   );
-  return rows.map((r) => ({
-    toolName: r.toolName,
-    isError: r.isError,
-    code: r.code,
-    gated: r.gated,
-    args: safeJson(r.args),
-  }));
+  return rows.map((r) => {
+    const row = safeJson(r.raw);
+    return {
+      toolName: row.toolName,
+      isError: Boolean(row.isError),
+      code: row.code ?? "",
+      gated: Boolean(row.gated),
+      args: row.argsJson ?? {},
+    };
+  });
 }
 export async function merchantProductIds() {
   const rows = await sql(`SELECT id FROM "Product" WHERE "locationId" = $1`, [cfg.locationId]);
@@ -236,21 +251,19 @@ export async function merchantRow() {
 }
 /** Aggregate the turn's model usage for the metrics summary. Aggregates are cast
  *  to float8/int so they come back as plain JS numbers (not BigInt / Decimal). */
-export async function modelMetrics(conversationId) {
-  const rows = await sql(
-    `SELECT coalesce(sum("promptTokens"), 0)::float8 AS prompt,
-            coalesce(sum("completionTokens"), 0)::float8 AS completion,
-            coalesce(sum("costUsd"), 0)::float8 AS cost,
-            coalesce(sum("latencyMs"), 0)::float8 AS latency,
-            count(*)::int AS calls
-       FROM "AiModelCall" WHERE "conversationId" = $1`,
-    [conversationId],
-  );
-  const r = rows[0];
-  return r
-    ? { tokens: Number(r.prompt) + Number(r.completion), cost: Number(r.cost), latencyMs: Number(r.latency), calls: Number(r.calls) }
-    : { tokens: 0, cost: 0, latencyMs: 0, calls: 0 };
+/**
+ * Per-conversation token/cost totals.
+ *
+ * These lived in `AiModelCall`, which was removed with the move to PostHog — the
+ * query error was swallowed into a harness failure. Rather than report an invented
+ * figure, this returns zeros and the runner's `Cost:` line reads 0. Spend is
+ * authoritative in PostHog / OpenRouter; wire this to PostHog if the eval needs it
+ * back, but a wrong number here is worse than an obviously absent one.
+ */
+export async function modelMetrics() {
+  return { tokens: 0, cost: 0, latencyMs: 0, calls: 0 };
 }
+
 
 /**
  * Test isolation: archive leftover `Eval *` drafts from prior runs at the test

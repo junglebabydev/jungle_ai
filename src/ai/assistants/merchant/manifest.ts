@@ -42,6 +42,27 @@ const COMMON_SUGGESTABLE: FieldSpec[] = [
   { name: "metaDescription", note: "SEO description" },
 ];
 
+/**
+ * The questions a parent asks before booking. Merchant-supplied, never suggestable:
+ * a drafted cancellation policy or an invented "no booking needed" is a fabrication
+ * that reaches a parent as fact. All three are optional and tri-state — leaving one
+ * unset is a real answer ("not stated"), which the concierge reports honestly.
+ */
+const PRE_BOOKING_MERCHANT_SUPPLIED: FieldSpec[] = [
+  {
+    name: "product.bookingRequired",
+    note: "Must a parent book ahead, or can they turn up? Leave unset if the merchant has not said — never guess.",
+  },
+  {
+    name: "details.requiresPackage",
+    note: "Must they buy a package to book, or can they pay per session? Leave unset if the merchant has not said.",
+  },
+  {
+    name: "details.cancellationPolicy",
+    note: "Refund / cancellation terms in the merchant's own words. Never draft this.",
+  },
+];
+
 // upsert_product takes a generic `product` block + a type-specific `details`
 // block; the handler nests them. Pricing and schedule are ALWAYS separate tools
 // (upsert_pricing, upsert_schedule) — never part of upsert_product.
@@ -54,6 +75,7 @@ export const PRODUCT_TYPE_FIELDS: Record<string, ConfigKind> = {
       { name: "details.format", note: "PARENT_PARTICIPATION | PARENT_ACCOMPANIED | INDEPENDENT (required)" },
       { name: "details.duration", note: "Class length in minutes (required)" },
       { name: "details.maxCapacity", note: "Max participants per session (required)" },
+      ...PRE_BOOKING_MERCHANT_SUPPLIED,
     ],
     suggestable: COMMON_SUGGESTABLE,
     notes:
@@ -68,6 +90,7 @@ export const PRODUCT_TYPE_FIELDS: Record<string, ConfigKind> = {
       { name: "schedule.maxCapacity", note: "Max participants — set via upsert_schedule" },
       { name: "pricing", note: `Day and/or week price — set via upsert_pricing (priceType ${PRICE_TYPE.CAMP_DAY} and/or ${PRICE_TYPE.CAMP_WEEK})` },
       { name: "campOptions (optional)", note: `Individual bookable weeks/slots — each with its own name, dates, times, capacity, and price (priceType ${PRICE_TYPE.CAMP_DAY}/${PRICE_TYPE.CAMP_WEEK}) — set via upsert_camp_option. These are what customers book.` },
+      ...PRE_BOOKING_MERCHANT_SUPPLIED,
     ],
     suggestable: COMMON_SUGGESTABLE,
     notes:
@@ -80,6 +103,7 @@ export const PRODUCT_TYPE_FIELDS: Record<string, ConfigKind> = {
     merchantSupplied: [
       { name: "details.venueType", note: "AT_HOME | AT_LOCATION | BOTH (required)" },
       { name: "pricing", note: "Base + add-on price — set via upsert_pricing (priceType PARTY_BASE / PARTY_ADDON)" },
+      ...PRE_BOOKING_MERCHANT_SUPPLIED,
     ],
     suggestable: COMMON_SUGGESTABLE,
     notes:
@@ -91,6 +115,7 @@ export const PRODUCT_TYPE_FIELDS: Record<string, ConfigKind> = {
     maps: "upsert_product { product, details } → Product + DropInDetails; price via pricing",
     merchantSupplied: [
       { name: "pricing", note: "Per-session price — set via upsert_pricing (priceType DROP_IN_SESSION)" },
+      ...PRE_BOOKING_MERCHANT_SUPPLIED,
     ],
     suggestable: COMMON_SUGGESTABLE,
     notes:

@@ -32,6 +32,13 @@ export type ConciergeToolContext = {
   /** True when the parent asked about a package, membership or bundle. Packages
    *  are otherwise left out of an open browse — see `browseSections`. */
   askedForPackages?: boolean;
+  /** The activity the parent established earlier in their own words ("swimming"),
+   *  already reduced to its substantive words. Applied when THIS turn's query names
+   *  no activity of its own, so a bare refinement ("any in the east?") narrows the
+   *  established search instead of collapsing into an unfiltered browse. Naming a
+   *  different activity replaces it — the accumulator resolves that before it
+   *  arrives here. Null when they have never named one. */
+  carriedActivity?: string | null;
   scope?: ConciergeScope;
   /** `Boolean(scope?.merchantId || scope?.locationId)` — true ⇒ merchant-location chat. */
   scoped: boolean;

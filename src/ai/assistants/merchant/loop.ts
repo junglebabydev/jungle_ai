@@ -19,7 +19,7 @@ import {
   spotlightToolResult,
 } from "../../shared/guard";
 import { ChatModelEvent, ChatToolEvent, emitMerchantTelemetry } from "../../shared/evalLog";
-import { merchantSystemPrompt } from "./merchantSystemPrompt";
+import { MERCHANT_PROMPT_VERSION, merchantSystemPrompt } from "./merchantSystemPrompt";
 import { MERCHANT_TOOLS, TOOLS_BY_NAME } from "./tools/registry";
 import { MerchantScope } from "./tools/types";
 
@@ -305,7 +305,7 @@ export async function runMerchantTurn(input: RunMerchantTurnInput): Promise<RunM
           locationId: scope.locationId,
         }) + (input.systemSuffix ?? ""),
     },
-    ...history.map(turnToMessage),
+    ...history.filter((t) => t.role !== AI_TURN_ROLE.TOOL).map(turnToMessage),
     { role: "user", content: userMessage },
   ];
 
@@ -583,6 +583,7 @@ export async function runMerchantTurn(input: RunMerchantTurnInput): Promise<RunM
         locationId: scope.locationId ?? null,
         userId: scope.userId,
         merchantName,
+        promptVersion: MERCHANT_PROMPT_VERSION,
         api: input.api,
       },
       toolRows,
@@ -603,6 +604,11 @@ export async function runMerchantTurn(input: RunMerchantTurnInput): Promise<RunM
   if (input.persistTurns !== false) {
     await conv.appendTurns(conversationId, [
       { role: AI_TURN_ROLE.USER, content: userMessage },
+      ...toolRows.map((row) => ({
+        role: AI_TURN_ROLE.TOOL,
+        content: row.toolName,
+        rawJson: row as unknown as Prisma.InputJsonValue,
+      })),
       { role: AI_TURN_ROLE.ASSISTANT, content: reply },
     ]);
   }

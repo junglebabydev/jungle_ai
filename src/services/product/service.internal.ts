@@ -43,6 +43,7 @@ async function createProduct(
         thumbnailUrl: dto.thumbnailUrl,
         tags: dto.tags,
         highlights: dto.highlights,
+        bookingRequired: dto.bookingRequired,
         isPublished,
         publishedAt: isPublished ? now : undefined,
         isArchived,

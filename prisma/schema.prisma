@@ -412,16 +412,16 @@ model MerchantMedia {
   merchantId Int
   merchant   Merchant @relation(fields: [merchantId], references: [id])
 
-  type     MERCHANT_MEDIA_TYPE
-  mimeType String
-  url      String
+  type      MERCHANT_MEDIA_TYPE
+  mimeType  String
+  url       String
   // GCS object path (e.g. merchants/<merchantId>/<type>/<folder?>/<uuid>_<name>).
   // Stored explicitly so the object can be deleted without parsing the URL.
-  objectKey String  @unique
+  objectKey String              @unique
   fileName  String
   sizeBytes Int
   // Optional user-defined folder for the Folders tab. null = library root.
-  folder String?
+  folder    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -458,7 +458,7 @@ model Location {
   thumbnail    String?
   locationType LOCATION_TYPE
   gMapUrl      String
-  gMapRating   Decimal? @db.Decimal(10, 2)
+  gMapRating   Decimal?      @db.Decimal(10, 2)
   reviewCount  Int?
   tags         String[]
 
@@ -501,6 +501,12 @@ model LocationDetails {
   facebookUrl  String?
   phone        String?
   whatsApp     String?
+
+  // The pre-booking questions a venue gets asked and the catalogue could not answer.
+  parking           String? @db.Text
+  whatToBring       String? @db.Text
+  supervisionPolicy String? @db.Text
+  amenities         String? @db.Text
 }
 
 model LocationOperatingHrs {
@@ -600,6 +606,11 @@ model Product {
   tags         String[]
   highlights   String[]
 
+  // Nullable on purpose: null means the merchant has not said, false means they
+  // said it is not needed. Defaulting to false would let an unanswered question be
+  // read as a definite answer, and told to a parent as one.
+  bookingRequired Boolean?
+
   isPublished Boolean   @default(false)
   publishedAt DateTime?
   isArchived  Boolean   @default(false)
@@ -695,6 +706,10 @@ model ClassDetails {
   ratioRequirement   String?
   dresscode          String?
 
+  // Matches BirthdayDetails and DropInDetails, which already carry this — a parent
+  // asks it of a class as readily as of a party.
+  cancellationPolicy String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -716,14 +731,19 @@ model CampDetails {
   lat          Float?
   long         Float?
 
-  nearestMrt     String?
-  nearestBusStop String?
-  mealIncluded   Boolean @default(false)
-  busIncluded    Boolean @default(false)
+  nearestMrt String?
+
+  /// Whether a package must be bought to book. Null means the merchant has not said.
+  requiresPackage Boolean?
+  nearestBusStop  String?
+  mealIncluded    Boolean  @default(false)
+  busIncluded     Boolean  @default(false)
 
   discountDetails String? @db.Text
   bookingUrl      String?
   notes           String? @db.Text
+
+  cancellationPolicy String? @db.Text
 
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -776,6 +796,8 @@ model BirthdayDetails {
 
   venueType       BIRTHDAY_VENUE_TYPE @default(AT_LOCATION)
   durationMinutes Int?
+  /// Whether a package must be bought to book. Null means the merchant has not said.
+  requiresPackage Boolean?
 
   minKids    Int?
   maxKids    Int?
@@ -891,6 +913,9 @@ model DropInDetails {
   maxKids    Int?
   minParents Int?
   maxParents Int?
+
+  /// Whether a package must be bought to book. Null means the merchant has not said.
+  requiresPackage Boolean?
 
   whatsIncluded      String? @db.Text
   cancellationPolicy String? @db.Text
@@ -1281,8 +1306,8 @@ model PackageTemplate {
 
   canShareSiblings Boolean @default(false)
 
-  price       Decimal @db.Decimal(10, 2)
-  description String?
+  price        Decimal @db.Decimal(10, 2)
+  description  String?
   thumbnailUrl String?
 
   stripePriceId String?
@@ -1800,7 +1825,7 @@ model MerchantSiteConfig {
   // Must be unique, lowercase, alphanumeric with hyphens
   // Max 63 chars (DNS label limit)
   slug String? @unique @db.VarChar(63)
-  
+
   // Custom domain (e.g., "impressions.com" or "littleexplorers.sg")
   // Merchant's own domain that points to their Jungle site
   customDomain String? @unique @db.VarChar(255)

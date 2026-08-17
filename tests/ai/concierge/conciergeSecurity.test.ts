@@ -24,6 +24,15 @@ jest.mock("../../../src/services", () => ({
         appendTurns: jest.fn().mockResolvedValue(2),
       },
     },
+    // The loop builds district matchers from the live district list on every turn,
+    // before any guard runs — so a security case throws here without this stub.
+    LocationService: {
+      internal: {
+        getDistinctDistricts: jest
+          .fn()
+          .mockResolvedValue(["Tampines", "Punggol", "Orchard", "Bishan"]),
+      },
+    },
   },
 }));
 

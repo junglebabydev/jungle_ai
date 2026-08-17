@@ -36,6 +36,10 @@ export const CreateBirthdayDetailsSchema = z.object({
   maxParents: z.int().positive().optional(),
   whatsIncluded: z.string().optional(),
   cancellationPolicy: z.string().optional(),
+  // Nullable, not defaulted: null means the merchant has not said. `ClassDetails`
+  // asks the same question as a defaulted boolean; these cannot, because their rows
+  // already exist and a default would answer for every one of them.
+  requiresPackage: z.boolean().nullable().optional(),
 });
 
 export type CreateBirthdayDetailsDTO = z.infer<
@@ -121,6 +125,9 @@ export type BirthdayDetailsResponseDTO = {
 
   whatsIncluded: string | null;
   cancellationPolicy: string | null;
+  // Whether a package must be bought to book. Null means unanswered — say "not
+  // listed" rather than treating it as a no.
+  requiresPackage: boolean | null;
 
   createdAt: Date;
 
@@ -161,6 +168,7 @@ export function mapBirthdayDetailsResponseDTO(
     maxParents: birthdayDetails.maxParents,
     whatsIncluded: birthdayDetails.whatsIncluded,
     cancellationPolicy: birthdayDetails.cancellationPolicy,
+    requiresPackage: birthdayDetails.requiresPackage,
     createdAt: birthdayDetails.createdAt,
     addons: addons
       ? addons.map((addon) => mapBirthdayAddonResponseDTO(addon))

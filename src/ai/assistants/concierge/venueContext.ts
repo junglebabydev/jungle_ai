@@ -80,6 +80,7 @@ function formatVenueProfile(
   location: LocationResponseDTO | null,
   categoryNames: string[],
   offerings: ProductResponseDTO[],
+  preBooking: Map<number, PreBookingDetail>,
   catalogTotal: number,
 ): string {
   const lines: string[] = [
@@ -137,6 +138,18 @@ function formatVenueProfile(
       .join(", ");
     if (social) lines.push(`- Social: ${social}`);
 
+    // The questions parents ask before booking. Only stated answers appear — an
+    // absent line means the venue has not said, which the prompt reports honestly
+    // rather than reading as a "no".
+    if (location.details?.parking)
+      lines.push(`- Parking: ${location.details.parking.slice(0, 200)}`);
+    if (location.details?.whatToBring)
+      lines.push(`- What to bring: ${location.details.whatToBring.slice(0, 200)}`);
+    if (location.details?.supervisionPolicy)
+      lines.push(`- Supervision: ${location.details.supervisionPolicy.slice(0, 200)}`);
+    if (location.details?.amenities)
+      lines.push(`- Facilities: ${location.details.amenities.slice(0, 200)}`);
+
     if (location.details?.termsSummary)
       lines.push(`- Good to know: ${location.details.termsSummary.slice(0, 200)}`);
     if (location.details?.description)
@@ -151,6 +164,14 @@ function formatVenueProfile(
     for (const p of offerings.slice(0, VENUE_CATALOG_SIZE)) {
       const desc = p.description ? ` — ${p.description.slice(0, 90)}` : "";
       lines.push(`  • ${p.name} (${p.productType}, ages ${p.ageMin}-${p.ageMax})${desc}`);
+      // "Do I need to book, or can we just turn up?" — asked of every activity, and
+      // answerable for any type, so it sits on the product rather than in the
+      // per-type detail block. Tri-state: an unanswered flag renders nothing.
+      if (p.bookingRequired === true)
+        lines.push("      – Booking ahead is required");
+      else if (p.bookingRequired === false)
+        lines.push("      – No need to book ahead, walk-ins welcome");
+      lines.push(...preBookingLines(preBooking.get(p.id)));
     }
   } else {
     // Factual only — the "don't dead-end, pivot to the venue facts above" guidance
@@ -159,6 +180,89 @@ function formatVenueProfile(
   }
 
   return lines.join("\n");
+}
+
+/**
+ * The pre-booking answers a parent asks for before committing — what's included, how
+ * long it runs, group size, cancellation terms. They exist on the per-type detail
+ * models but were never loaded here, so the guide could describe a venue and then
+ * decline the questions that actually decide a booking.
+ *
+ * Keyed by product id, and only for the two types that carry them. Best-effort: a
+ * product with no detail row simply gets none, matching the rest of this preload.
+ */
+type PreBookingDetail = {
+  whatsIncluded?: string | null;
+  cancellationPolicy?: string | null;
+  requiresPackage?: boolean | null;
+  minKids?: number | null;
+  maxKids?: number | null;
+  durationMinutes?: number | null;
+};
+
+async function loadPreBookingDetails(
+  offerings: ProductResponseDTO[],
+): Promise<Map<number, PreBookingDetail>> {
+  const wanted = offerings
+    .filter(
+      (product) =>
+        product.productType === "BIRTHDAY" || product.productType === "DROP_IN",
+    )
+    .slice(0, VENUE_CATALOG_SIZE);
+
+  const loaded = await Promise.all(
+    wanted.map(async (product) => {
+      try {
+        const detail =
+          product.productType === "BIRTHDAY"
+            ? await ServiceLocator.BirthdayDetailsService.public.getBirthdayDetailsByProduct(
+                product.id,
+                {},
+              )
+            : await ServiceLocator.DropInDetailsService.public.getDropInDetailsByProduct(
+                product.id,
+                {},
+              );
+        return [product.id, detail as PreBookingDetail] as const;
+      } catch {
+        // No detail row for this product. The guide says "not listed" rather than
+        // losing the whole ABOUT block over one missing record.
+        return null;
+      }
+    }),
+  );
+
+  return new Map(loaded.filter((entry): entry is NonNullable<typeof entry> => !!entry));
+}
+
+/** The pre-booking lines for one activity, indented under its catalogue bullet. */
+function preBookingLines(detail: PreBookingDetail | undefined): string[] {
+  if (!detail) return [];
+  const lines: string[] = [];
+  if (detail.whatsIncluded)
+    lines.push(`      – What's included: ${detail.whatsIncluded.slice(0, 220)}`);
+  if (detail.durationMinutes != null)
+    lines.push(`      – Runs for: ${detail.durationMinutes} minutes`);
+  // Group size is load-bearing for a birthday: a per-child price is not the total
+  // when a minimum number of children applies.
+  if (detail.minKids != null || detail.maxKids != null) {
+    const range =
+      detail.minKids != null && detail.maxKids != null
+        ? `${detail.minKids}–${detail.maxKids} children`
+        : detail.minKids != null
+          ? `minimum ${detail.minKids} children`
+          : `up to ${detail.maxKids} children`;
+    lines.push(`      – Group size: ${range}`);
+  }
+  if (detail.cancellationPolicy)
+    lines.push(`      – Cancellation: ${detail.cancellationPolicy.slice(0, 220)}`);
+  // Tri-state: only a stated answer is rendered. Null means the merchant has not
+  // said, and no line at all is the honest representation of that.
+  if (detail.requiresPackage === true)
+    lines.push("      – A package must be bought to book");
+  else if (detail.requiresPackage === false)
+    lines.push("      – Can be paid per session, no package needed");
+  return lines;
 }
 
 /**
@@ -209,6 +313,8 @@ export async function buildVenueContext(
     .map((c) => c.name)
     .filter((n): n is string => Boolean(n));
   const offerings = catalog?.products?.data ?? [];
+  // Loaded after the catalogue because it is keyed off which products came back.
+  const preBooking = await loadPreBookingDetails(offerings);
 
   const profileText = formatVenueProfile(
     who,
@@ -216,6 +322,7 @@ export async function buildVenueContext(
     location ?? null,
     categoryNames,
     offerings,
+    preBooking,
     catalog?.products?.total ?? 0,
   );
 

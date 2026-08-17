@@ -60,6 +60,12 @@ export const CreateLocationBodySchema = z.object({
       facebookUrl: z.string().optional(),
       phone: z.string().optional(),
       whatsApp: z.string().optional(),
+      // The questions a parent asks a venue before booking. Free text, because a
+      // merchant's real answer ("carpark B, $2/hr, free after 6") is never a flag.
+      parking: z.string().optional(),
+      whatToBring: z.string().optional(),
+      supervisionPolicy: z.string().optional(),
+      amenities: z.string().optional(),
     })
     .optional(),
   operatingHrs: z

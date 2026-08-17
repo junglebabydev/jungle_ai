@@ -37,6 +37,13 @@ jest.mock("../../../src/services", () => ({
           details: { description: "Learn-to-swim specialists." },
         }),
       },
+      // Every turn builds district matchers from the live district list before it
+      // reaches the model, so the loop throws without this even on venue-only cases.
+      internal: {
+        getDistinctDistricts: jest
+          .fn()
+          .mockResolvedValue(["Tampines", "Punggol", "Orchard", "Bishan"]),
+      },
     },
     // buildVenueContext also preloads the location's activity categories.
     ProductCategoryService: {
@@ -62,6 +69,7 @@ import {
   runConciergeTurn,
   _resetVenueContextCache,
 } from "../../../src/ai/assistants/concierge/loop";
+import { _resetSearchCache } from "../../../src/ai/assistants/concierge/tools/search";
 
 const streamMock = streamChatCompletion as jest.Mock;
 const search = searchClient.search as jest.Mock;
@@ -129,28 +137,35 @@ beforeEach(() => {
   // The venue preload is cached per (merchant,location); clear it so a case's
   // search-mock changes aren't masked by a prior case's cached context.
   _resetVenueContextCache();
+  _resetSearchCache();
   search.mockResolvedValue(fakeSearchResponse());
 });
 
 describe("runConciergeTurn — section binding", () => {
-  it("pins the request sections into the search (model cannot change them)", async () => {
+  // A product type the PARENT named outranks the pinned tab: "camps" answers the
+  // question more precisely than "the Activities tab" does, and a generic word like
+  // "camp" would otherwise keyword-match provider names. The override is derived
+  // server-side from their messages (`askedProductTypeFor`), never from tool args,
+  // so the model still cannot widen scope — which is what this case guards.
+  it("lets a parent-named product type override the pinned tab, but never the model", async () => {
     scriptToolThenReply({ query: "swim" }, "Here are some providers. SUGGESTIONS: a | b");
 
     const res = await runConciergeTurn({
       conversationId: 1,
       publicId: "pub-uuid",
       model: "test-model",
-      userMessage: "show me swimming camps", // asks for camps...
-      sections: ["merchants"], //              ...but bound to the Activities tab
+      userMessage: "show me swimming camps", // the parent names a type...
+      sections: ["merchants"], //               ...while bound to the Activities tab
     });
 
-    // Every search ran with the PINNED section, not whatever the model intended.
-    expectEverySearchBoundTo(search, ["merchants"]);
+    expectEverySearchBoundTo(search, ["products"]);
+    for (const call of search.mock.calls) {
+      expect(call[0].productTypes).toEqual(["CAMP"]);
+    }
     // The model owns the query via the structured tool; its activity term flows
     // through to search.
     expect(search.mock.calls[0][0].query).toBe("swim");
-    // Full federated results passed back to the FE (global discovery → merchants
-    // section present); reply is the (redacted) model text.
+    // Full federated results still passed back to the FE.
     expect((res.results as Record<string, any>)?.merchants.total).toBe(1);
     expect(res.reply).toContain("providers");
   });
@@ -180,21 +195,15 @@ describe("runConciergeTurn — section binding", () => {
     expect(search.mock.calls[0][0].query).toBe("chess");
   });
 
-  it("keeps main cards when the tool adds an automatic Explorer Map complement", async () => {
+  // The complementary-trail search used to run automatically on any categorised
+  // activity search, purely to enrich the model projection. That projection is gone,
+  // so the extra round-trip would now be paid for and discarded — this pins it off.
+  it("runs ONE search for an activity ask and never spends a round-trip on a parked complement", async () => {
     const main = fakeSearchResponse();
-    const supporting = {
-      ...fakeSearchResponse(),
-      query: "",
-      parsed: { trail: ["Cognitive"] },
-      products: {
-        ...fakeSearchResponse().products,
-        total: 2,
-      },
-    };
-    search.mockResolvedValueOnce(main).mockResolvedValueOnce(supporting);
+    search.mockResolvedValueOnce(main);
     scriptToolThenReply(
       { query: "swim", age: 6, category: "Swim" },
-      "Swimming is the anchor. Discovery can add new ground. SUGGESTIONS: swimming | discovery",
+      "Swimming looks like a good fit. SUGGESTIONS: swimming | weekends",
     );
 
     const response = await runConciergeTurn({
@@ -205,10 +214,8 @@ describe("runConciergeTurn — section binding", () => {
       sections: ["products"],
     });
 
-    expect(search).toHaveBeenCalledTimes(2);
-    expect(search.mock.calls[1][0]).toEqual(
-      expect.objectContaining({ query: "", age: 6, trail: "Cognitive" }),
-    );
+    expect(search).toHaveBeenCalledTimes(1);
+    // The parent's own activity search is what reaches them, unreplaced.
     expect(response.results).toBe(main);
   });
 

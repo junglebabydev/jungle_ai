@@ -280,14 +280,21 @@ export function productsOutOfRegions(results, regionChips) {
 export function productsOutOfAge(results, age) {
   if (age == null) return [];
   if (results?.broadened) return []; // broadened fallback — age was intentionally relaxed
+  // The parent speaks in YEARS; the catalogue stores the band in MONTHS. Comparing the
+  // two directly both invents violations (a 4-year-old "excluded" from a 36–204 month
+  // band that plainly contains them) and hides real ones (a 12–24 month class passes
+  // for a 5 year old, since 5 is neither below 12 nor above 24).
+  const ageMonths = age * 12;
   const bad = [];
   for (const p of products(results)) {
     if (
       typeof p.ageMin === "number" &&
       typeof p.ageMax === "number" &&
-      (age < p.ageMin || age > p.ageMax)
+      (ageMonths < p.ageMin || ageMonths > p.ageMax)
     )
-      bad.push(`product "${p.name}" ages ${p.ageMin}-${p.ageMax} excludes ${age}`);
+      bad.push(
+        `product "${p.name}" ages ${p.ageMin}-${p.ageMax} months excludes ${age}y (${ageMonths}m)`,
+      );
   }
   return bad;
 }

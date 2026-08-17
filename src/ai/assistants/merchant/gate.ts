@@ -1,3 +1,4 @@
+import { MERCHANT_PROMPT_VERSION } from "./merchantSystemPrompt";
 import { AI_PENDING_STATUS, AI_TURN_ROLE, Prisma } from "@prisma/client";
 import { resolvePermissions } from "../../../auth/permission-resolver";
 import { ServiceLocator } from "../../../services";
@@ -48,6 +49,35 @@ function resourceName(obj: unknown): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The state a merchant asks about next: is it live, and what is still missing before
+ * it can be. Read from the tool's own result — no extra lookup — and omitted entirely
+ * when the result does not carry it, so the record never asserts a state it guessed.
+ */
+function stateAfter(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  const inner =
+    o.product && typeof o.product === "object"
+      ? (o.product as Record<string, unknown>)
+      : o;
+  if (typeof inner.isPublished !== "boolean") return null;
+  return inner.isPublished ? "PUBLISHED" : "DRAFT";
+}
+
+/**
+ * What the merchant actually changed, taken from the arguments they confirmed.
+ * Names only — a value could be anything the merchant typed, and this line is shown
+ * to them as well as read by the agent.
+ */
+function changedFields(argsJson: unknown): string | null {
+  if (!argsJson || typeof argsJson !== "object") return null;
+  const fields = Object.entries(argsJson as Record<string, unknown>)
+    .filter(([key, value]) => value !== undefined && !key.toLowerCase().endsWith("id"))
+    .map(([key]) => key);
+  return fields.length ? fields.slice(0, 8).join(", ") : null;
 }
 
 export type ConfirmOutcome =
@@ -108,6 +138,7 @@ export async function executeConfirmation(
       merchantId: convo.merchantId,
       locationId: convo.locationId ?? null,
       userId: convo.userId,
+      promptVersion: MERCHANT_PROMPT_VERSION,
       api: "POST /api/v1/ai/confirm",
     },
     [
@@ -151,8 +182,25 @@ export async function executeConfirmation(
             : pending.toolName.startsWith("update_")
               ? "Updated"
               : "Saved";
+    // A STRUCTURED record rather than a sentence. The write happens out of band, so
+    // this note is the only thing the next turn learns from — and a weak model
+    // reconstructs state from prose badly, which is exactly the observed failure.
+    // Labelled lines give it something to read rather than parse.
+    //
+    // Still merchant-safe: no ids, no codes. The agent looks ids up by name when it
+    // needs them, which the prompt already tells it to do, and this line is rendered
+    // in the merchant's thread as well as replayed to the model.
+    const state = stateAfter(result.data);
+    const changed = changedFields(pending.argsJson);
     const note = name
-      ? `✓ Done — ${verb} **${name}**.`
+      ? [
+          `✓ Done — ${verb} **${name}**.`,
+          `APPLIED: ${verb.toLowerCase()} "${name}"`,
+          changed ? `  changed: ${changed}` : null,
+          state ? `  state after: ${state}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n")
       : "✓ Done — that change has been applied and saved.";
     try {
       await svc.appendTurns(pending.conversationId, [

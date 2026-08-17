@@ -54,6 +54,10 @@ export type ChatTelemetryContext = {
   api?: string;
   /** Store name — when present, names the PostHog `merchant` group (groupIdentify). */
   merchantName?: string;
+  /** The calling brain's prompt version, so a quality shift can be attributed to a
+   *  revision rather than only to a content hash. Passed in — never imported here,
+   *  which would make this brain-aware. */
+  promptVersion?: string;
 };
 
 const SOURCE = "ai-agent";
@@ -95,6 +99,7 @@ export function emitMerchantTelemetry(
     merchantId: ctx.merchantId,
     locationId: ctx.locationId,
     userId: ctx.userId,
+    promptVersion: ctx.promptVersion,
     $current_url: apiPath,
     $ai_trace_id: traceId,
   };
@@ -210,7 +215,7 @@ const CONCIERGE_DEFAULT_API = "POST /api/v1/concierge/chat";
  * PostHog key; never throws (observability must not break a turn).
  */
 export function emitConciergeTelemetry(
-  ctx: { conversationId: number; api?: string },
+  ctx: { conversationId: number; api?: string; promptVersion?: string },
   toolEvents: ChatToolEvent[],
   modelEvents: ChatModelEvent[],
   turn?: { error?: string | null },
@@ -226,6 +231,7 @@ export function emitConciergeTelemetry(
     ...basePostHogProps(),
     source: CONCIERGE_SOURCE,
     api,
+    promptVersion: ctx.promptVersion,
     conversationId: ctx.conversationId,
     $current_url: apiPath,
     $ai_trace_id: traceId,

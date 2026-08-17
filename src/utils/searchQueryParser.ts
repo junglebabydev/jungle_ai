@@ -42,8 +42,10 @@ export type ParsedSearchQuery = {
   // Product type (CLASS/CAMP/BIRTHDAY/DROP_IN/EVENT) when the concierge's
   // category chips map to one (Camps→CAMP, Birthdays→BIRTHDAY).
   productType?: string | string[];
-  // Exact planning-area match ("in tampines" → only Tampines locations).
-  district?: string;
+  // Exact planning-area match ("in tampines" → only Tampines locations). Several
+  // when one word names a family of areas ("bukit" → four planning areas): the
+  // search ORs them, so the parent sees all of what they asked for.
+  district?: string | string[];
   // Proximity intent ("near tampines", "around orchard"): the user wants things
   // CLOSE TO that area, not strictly inside it. Carried separately from
   // `district` so the search layer can switch to distance-based ranking
@@ -178,7 +180,7 @@ const EVENING_RE = /\bevenings?\b/i;
 
 // A compiled phrase→value matcher. Used for both the enum-derived dimensions
 // (region/locationType) and the DB-derived district vocabulary.
-export type PhraseMatcher = { re: RegExp; value: string };
+export type PhraseMatcher = { re: RegExp; value: string | string[] };
 
 const escapeForRegex = (s: string): string =>
   s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -323,12 +325,38 @@ export function buildDistrictMatchers(
     kept.push(value);
   }
 
-  return kept
-    .sort((a, b) => b.length - a.length)
-    .map((value) => ({
-      re: new RegExp(`\\b${escapeForRegex(value.toLowerCase())}\\b`, "i"),
-      value,
+  // A word that several areas share ("bukit" → Bukit Timah / Merah / Batok /
+  // Panjang; "jurong" → East / West) is a real thing to ask for. Without this the
+  // phrase matches no area at all, the word falls through to free text, and the
+  // model picks ONE of them — so a parent asking for "bukit" is answered from a
+  // quarter of the catalogue and told it is the answer. Families of one are left
+  // out: the exact matcher already covers those.
+  const families = new Map<string, string[]>();
+  for (const value of kept) {
+    const [head, ...rest] = value.split(/\s+/);
+    if (!rest.length) continue; // single-word area — exact match is enough
+    const key = head.toLowerCase();
+    families.set(key, [...(families.get(key) ?? []), value]);
+  }
+
+  const exact: PhraseMatcher[] = kept.map((value) => ({
+    re: new RegExp(`\\b${escapeForRegex(value.toLowerCase())}\\b`, "i"),
+    value,
+  }));
+  const familyMatchers: PhraseMatcher[] = [...families.entries()]
+    .filter(([, values]) => values.length > 1)
+    .map(([key, values]) => ({
+      re: new RegExp(`\\b${escapeForRegex(key)}\\b`, "i"),
+      value: values,
     }));
+
+  // Longest phrase first, so "bukit timah" beats the "bukit" family and a parent who
+  // named one area gets exactly that one.
+  return [...exact, ...familyMatchers].sort((a, b) => {
+    const len = (m: PhraseMatcher) =>
+      Array.isArray(m.value) ? m.value[0].split(/\s+/)[0].length : m.value.length;
+    return len(b) - len(a);
+  });
 }
 
 // Returns the matched value AND the query with the matched phrase removed, so a
@@ -337,7 +365,7 @@ export function buildDistrictMatchers(
 const firstMatchAndStrip = (
   q: string,
   matchers: PhraseMatcher[],
-): { value?: string; rest: string } => {
+): { value?: string | string[]; rest: string } => {
   for (const { re, value } of matchers) {
     const m = q.match(re);
     if (m) {
@@ -353,7 +381,7 @@ const firstMatchAndStrip = (
 const firstMatchAt = (
   q: string,
   matchers: PhraseMatcher[],
-): { value: string; index: number; length: number } | null => {
+): { value: string | string[]; index: number; length: number } | null => {
   for (const { re, value } of matchers) {
     const m = q.match(re);
     if (m) return { value, index: m.index ?? 0, length: m[0].length };
@@ -409,7 +437,11 @@ export function parseSearchQuery(
       const prox = before.match(PROXIMITY_BEFORE_RE);
       const after = work.slice(hit.index + hit.length);
       if (prox) {
-        filters.nearDistrict = hit.value;
+        // "near X" ranks by distance from ONE centroid, so a family of areas has no
+        // single point to measure from. Treat it as an exact multi-area search
+        // instead of silently measuring from one of them.
+        if (Array.isArray(hit.value)) filters.district = hit.value;
+        else filters.nearDistrict = hit.value;
         work = `${before.slice(0, prox.index ?? before.length)} ${after}`;
       } else {
         filters.district = hit.value;
@@ -488,4 +520,131 @@ export function parseSearchQuery(
     .join(" ");
 
   return { filters, cleanedQuery };
+}
+
+//////////////////////////////
+// Retractions
+//////////////////////////////
+
+/**
+ * Every filter key carried across a conversation. Named here so the accumulator and
+ * a "start over" clear the same set — two hand-maintained lists would drift, and a
+ * key missing from one of them is a filter the parent cannot get rid of.
+ */
+/**
+ * Question and refinement words the stopword set above deliberately keeps — on a
+ * one-shot search they are harmless noise, and they only matter when deciding
+ * whether a follow-up NAMED a new activity or merely narrowed the existing one.
+ */
+const REFINEMENT_FILLER = new Set([
+  "what", "whats", "about", "how", "there", "else", "other", "others", "more",
+  "got", "have", "has", "available", "option", "options", "one", "ones", "please",
+  "you", "do", "does", "can", "could", "would", "any", "anything", "some", "we",
+  "cheaper", "cheapest", "closer", "nearer", "better", "bigger", "smaller",
+  "earlier", "later", "sooner", "affordable",
+  // discourse framing around a refinement ("somewhere closer to home",
+  // "actually, X instead") — none of it names a thing to do
+  "somewhere", "anywhere", "actually", "instead", "rather", "maybe",
+  "perhaps", "prefer", "home", "place", "places", "area", "areas",
+]);
+
+/**
+ * The activity a message NAMES, reduced to its substantive words — or null when it
+ * names none.
+ *
+ * A refinement leaves residue once its filter words are consumed: "any in the east?"
+ * reduces to "?" and "what about gymnastics?" to "what about gymnastics?". Treating
+ * the first as an activity replaces the one the parent established; searching the
+ * second verbatim looks for that whole sentence. Returning "gymnastics" and null
+ * respectively is what makes the carried activity safe to search with.
+ */
+export function namesAnActivity(text: string | undefined | null): string | null {
+  const substantive = (text ?? "")
+    .trim()
+    .split(/[^a-z0-9]+/i)
+    .filter((word) => word.length > 1 && !REFINEMENT_FILLER.has(word.toLowerCase()));
+  return substantive.length ? substantive.join(" ") : null;
+}
+
+export const CARRIED_FILTER_KEYS = [
+  "activity",
+  "age",
+  "region",
+  "district",
+  "nearDistrict",
+  "maxPrice",
+  "cheap",
+  "freeTrial",
+  "dropIn",
+  "termBased",
+  "meals",
+  "transport",
+  "daysOfWeek",
+  "timeOfDay",
+  "locationType",
+] as const;
+
+export type CarriedFilterKey = (typeof CARRIED_FILTER_KEYS)[number];
+
+/** "start over" and friends: the parent wants a clean slate, not one filter dropped. */
+const RESET_PHRASES =
+  /\b(?:start over|start again|start from scratch|reset|forget everything|clear everything|clear all|never mind all that)\b/i;
+
+/**
+ * A parent's own words for dropping ONE filter, and the keys each drops.
+ *
+ * The verb and the noun must sit together: a bare verb match would read "drop-in
+ * classes" as a request to drop something, and a bare noun match would read "what's
+ * your price range" the same way. One noun can clear several keys — forgetting the
+ * budget has to clear the cheapest-first ask too, or the results are still ordered
+ * by price after the ceiling is gone.
+ */
+const VERB = String.raw`(?:forget|drop|remove|undo|clear|ignore|scrap)`;
+const ARTICLE = String.raw`(?:\s+(?:the|that|my|a|any))?`;
+const retraction = (nouns: string) =>
+  new RegExp(`\\b${VERB}${ARTICLE}\\s+(?:${nouns})\\b`, "i");
+
+const RETRACTIONS: ReadonlyArray<readonly [RegExp, readonly CarriedFilterKey[]]> = [
+  [retraction("budget|budgets|price|prices|pricing|cost|costs"), ["maxPrice", "cheap"]],
+  [
+    retraction("area|areas|location|locations|district|districts|region|regions|place"),
+    ["district", "nearDistrict", "region"],
+  ],
+  [retraction("age|ages|age filter|age range"), ["age"]],
+  [retraction("day|days|time|times|schedule|weekend|weekends"), ["daysOfWeek", "timeOfDay"]],
+  [retraction("activity|activities|topic|search|query"), ["activity"]],
+  [retraction("indoor|outdoor|venue type"), ["locationType"]],
+];
+
+/**
+ * Which carried filters a message asks to drop. The concierge could add and overwrite
+ * filters but never remove one, so "forget the budget" and "start over" were
+ * instructions it had no mechanism to obey — and it said it had obeyed them anyway.
+ * Returns an empty list for an ordinary message, so a normal turn is unaffected.
+ */
+export function parseRetractions(message: string): CarriedFilterKey[] {
+  const text = message || "";
+  if (RESET_PHRASES.test(text)) return [...CARRIED_FILTER_KEYS];
+
+  const keys = new Set<CarriedFilterKey>();
+  for (const [pattern, cleared] of RETRACTIONS) {
+    if (pattern.test(text)) cleared.forEach((key) => keys.add(key));
+  }
+  return [...keys];
+}
+
+/**
+ * The message with its retraction phrases removed, ready to be read for filters.
+ *
+ * Needed because the words that ASK for a clear also look like a filter: "forget the
+ * budget" contains "budget", which reads as "show me the cheapest" — so parsing the
+ * raw message would re-set the very filter the parent just dropped. Stripping first
+ * leaves only what they actually want, which is why "forget the budget, make it under
+ * $300" still lands on $300.
+ */
+export function stripRetractionPhrases(message: string): string {
+  let text = message || "";
+  if (RESET_PHRASES.test(text)) text = text.replace(RESET_PHRASES, " ");
+  for (const [pattern] of RETRACTIONS) text = text.replace(pattern, " ");
+  return text.replace(/\s{2,}/g, " ").trim();
 }

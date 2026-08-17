@@ -33,6 +33,10 @@ export const CreateProductBaseSchema = z
     thumbnailUrl: z.string().transform(stripSignedParams).optional(),
     tags: z.array(z.string()).optional().default([]),
     highlights: z.array(z.string()).optional().default([]),
+    // Nullable, not defaulted: null means the merchant has not said, false means
+    // they said it is not needed. A default would turn an unanswered question into
+    // a definite answer, which is then shown to a parent as one.
+    bookingRequired: z.boolean().nullable().optional(),
     isPublished: z.boolean().optional().default(false),
     isArchived: z.boolean().optional().default(false),
     slug: z.string().optional(),
@@ -92,6 +96,8 @@ export type ProductResponseDTO = {
   thumbnailUrl: string | null;
   tags: string[];
   highlights: string[];
+  // Whether a parent must book ahead. Null means unanswered.
+  bookingRequired: boolean | null;
 
   isPublished: boolean;
   publishedAt: Date | null;
@@ -112,6 +118,32 @@ export type ProductResponseDTO = {
   // products when the caller hydrates them (e.g. concierge search results);
   // omitted otherwise.
   campOptions?: CampOptionResponseDTO[];
+  // The lowest price a parent can actually pay — public, still valid, never a trial
+  // rate. Computed by `search_engine`, which is also what its budget filter and
+  // cheapest-first sort use, so a figure shown here agrees with how results were
+  // ranked. ABSENT when the product has no usable price, which is NOT the same as
+  // free: the concierge must say "not listed" rather than invent a number or imply zero.
+  priceFrom?: number;
+  /** The top of the same set, and whether the two differ — so a figure can be given
+   *  as "from $X" rather than implying one price for a product that has several. */
+  priceTo?: number;
+  priceIsRange?: boolean;
+  /** What `priceFrom` COVERS (per session, per week, per child). A figure without
+   *  its unit is worse than no figure. Absent when the cheapest row does not say. */
+  priceType?: string;
+  /** Exactly zero. Kept separate from an absent price because "free" and "not
+   *  listed" are different answers and must never be shown as the same one. */
+  isFree?: boolean;
+  /** The cheapest row is restricted — residency, an age band, or siblings booking
+   *  together — so most parents cannot get it. Disclose rather than quote flat. */
+  priceQualified?: boolean;
+  /** A minimum group size applies, so a per-child figure is not the total. */
+  hasMinimumSpend?: boolean;
+  /** Kilometres from the point the search ranked around — the CENTRE of the area the
+   *  parent named, NEVER their own position, which nothing here ever knows. Present
+   *  only when a distance sort actually ran, so its absence means proximity was
+   *  never measured and must not be claimed. */
+  distanceKm?: number;
 };
 
 export function mapProductResponseDTO(
@@ -159,6 +191,7 @@ export function mapProductResponseDTO(
     thumbnailUrl: product.thumbnailUrl,
     tags: product.tags,
     highlights: product.highlights,
+    bookingRequired: product.bookingRequired,
     isPublished: product.isPublished,
     publishedAt: product.publishedAt,
     isArchived: product.isArchived,

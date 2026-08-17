@@ -95,6 +95,11 @@ export type SearchResponseDTO = {
    *  is never empty. The FE should label these as "no exact matches — nearby options",
    *  and confinement invariants (region/age) don't apply to a broadened set. */
   broadened?: boolean;
+  /** Which of the parent's constraints the broadening ladder dropped to fill the grid.
+   *  Set alongside `broadened` on EVERY rung that relaxes something — not just the
+   *  last one — because a grid missing the parent's budget or activity is not an
+   *  answer to what they asked, whichever rung produced it. The reply must name these. */
+  relaxed?: string[];
   /** Set by the concierge when the parent hasn't said what they want yet and the
    *  grid is a curated FEATURED selection rather than matches to a request. The FE
    *  should title it as such — calling it "N results" would claim it answered a
@@ -113,6 +118,13 @@ export type SearchResponseDTO = {
  * filter. All fields except `query` are optional (only stated filters are sent).
  */
 export type StructuredSearchInput = {
+  /**
+   * The parent's own words, before stopwords and format words were stripped. `query`
+   * drives keyword matching; this drives the semantic half, so intent words they
+   * chose ("beginner", "special needs friendly", "for my 5 year old") are not thrown
+   * away before the embedding sees them. Absent ⇒ falls back to `query`.
+   */
+  rawQuery?: string;
   /** The bare activity term (e.g. "swimming"); "" ⇒ browse by filters alone. */
   query: string;
   /**
@@ -133,9 +145,24 @@ export type StructuredSearchInput = {
   merchantIds?: number[];
   age?: number;
   /** Exact area ("in/at X"). Validated against the DB district vocabulary. */
-  district?: string;
+  /**
+   * Exact area ("in/at X"). SEVERAL when one word names a family of planning areas
+   * ("bukit" is four) — answering from one of them would silently drop the rest.
+   * Each value is grounded independently; the index ORs them.
+   */
+  district?: string | string[];
   /** Proximity area ("near/around X") → distance ranking. Validated likewise. */
   nearDistrict?: string;
+  /** Area(s) to leave OUT ("anything except Holland Village"). Grounded against the
+   *  district vocabulary service-side, so an unrecognised name widens the search
+   *  rather than becoming a filter. */
+  excludeDistrict?: string | string[];
+  /** Provider(s) to leave out, by id. NOT exposed to the model: it cannot resolve a
+   *  provider name to an id reliably, and a wrong id excludes the wrong provider. */
+  excludeMerchantIds?: number[];
+  /** Explicit result order. `rating` and `priceAsc` order WITHIN relevance tiers,
+   *  so a weak match can never outrank a strong one on rating or price alone. */
+  sort?: "relevance" | "rating" | "priceAsc";
   /** Broad region chip(s) — one OR an array (multi-select, OR-ed). Grounded by
    *  `normalizeSearchRegions` (Anywhere → none; the SG_REGIONS pass). */
   region?: string | string[];
@@ -186,7 +213,7 @@ export const SearchPageRequestSchema = z.object({
   merchantId: z.number().int().positive().optional(),
   locationId: z.number().int().positive().optional(),
   age: z.number().int().optional(),
-  district: z.string().max(120).optional(),
+  district: z.union([z.string().max(120), z.array(z.string().max(120)).max(12)]).optional(),
   nearDistrict: z.string().max(120).optional(),
   // Canonical, vocabulary-validated chip filters (one or an array) — the FE
   // replays the selected chips; shared with the chat schema.
