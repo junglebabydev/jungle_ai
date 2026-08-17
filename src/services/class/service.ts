@@ -75,6 +75,7 @@ async function createClass(
           specialNeeds: classDetailsDTO.specialNeeds,
           ratioRequirement: classDetailsDTO.ratioRequirement,
           dresscode: classDetailsDTO.dresscode,
+          cancellationPolicy: classDetailsDTO.cancellationPolicy,
         },
       });
 

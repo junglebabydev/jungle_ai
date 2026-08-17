@@ -13,13 +13,15 @@ import {
 import { ConciergeTool, ConciergeToolContext } from "./types";
 import { TRAILS } from "../../../../shared/constants";
 import {
-  chooseComplementaryExplorerMapTrail,
-  deriveExplorerMapTrails,
-  inferActivityCategoriesFromText,
   inferExplorerMapTrailsFromText,
   isGenericExplorerMapQuery,
   normalizeExplorerMapTrails,
 } from "../../../../shared/trails";
+import { LruTtlCache } from "../../../../lib/cache/lruTtlCache";
+import {
+  namesAnActivity,
+  stripOfferingWords,
+} from "../../../../utils/searchQueryParser";
 
 /** Top-N results SAMPLED into the model's context per search (kept small to
  *  bound tokens/cost — the model only needs a few to summarize). */
@@ -60,6 +62,12 @@ const SearchToolInput = z.object({
     .describe(
       "Proximity RANKING only — does NOT restrict the area (results can be anywhere, just sorted by distance). Use ONLY when the parent EXPLICITLY says 'near' / 'around' / 'close to' / 'nearby'. For 'in' / 'at' / a bare area name, use `district` instead.",
     ),
+  excludeDistrict: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe(
+      "Area(s) to leave OUT, when the parent asks for anything EXCEPT somewhere ('not in Holland Village', 'anywhere but Tampines'). Put the excluded area HERE and leave `district` unset — setting it as `district` returns exactly what they ruled out.",
+    ),
   region: z
     .union([z.string(), z.array(z.string())])
     .optional()
@@ -87,7 +95,7 @@ const SearchToolInput = z.object({
     .union([z.enum(TRAILS), z.array(z.enum(TRAILS)).max(TRAILS.length)])
     .optional()
     .describe(
-      "REQUIRED whenever the parent expresses a developmental goal rather than a named activity. Map movement/running/climbing/'body stuff' → Physical; curiosity/building/how-things-work → Cognitive; stories/art/music/performance/expression → Creative; confidence with others/friends/teamwork/'social' → Social. It matches activities where the trail is primary OR 'also builds'. May be one trail or several. Do not infer a deficiency or score the child.",
+      "Internal interest grouping. The server derives this from the parent's own words and overrides whatever you send, so normally leave it unset. Never name it, its values, or any grouping of activities to the parent.",
     ),
   locationType: z
     .string()
@@ -130,6 +138,12 @@ const SearchToolInput = z.object({
     .string()
     .optional()
     .describe("'morning', 'afternoon' or 'evening' if stated."),
+  sort: z
+    .enum(["relevance", "rating", "priceAsc"])
+    .optional()
+    .describe(
+      "Set ONLY when the parent asks for an order: 'rating' for best/highest rated/most popular, 'priceAsc' for cheapest first. Leave unset otherwise — results are ordered by how well they match, which is what a normal ask wants. Setting this is what earns you the right to call something top rated or cheapest.",
+    ),
   page: z
     .number()
     .int()
@@ -137,6 +151,38 @@ const SearchToolInput = z.object({
     .optional()
     .describe("Result page (default 1) — use to fetch MORE of the same search."),
 });
+
+/**
+ * Identical searches are common — across turns of one chat, and across parents asking
+ * the same popular thing — and each one otherwise costs a full round-trip plus the
+ * hydration of a page of cards. The TTL is deliberately short: the catalogue is what
+ * a parent is being shown, so a newly published activity should appear within about a
+ * minute, not whenever an entry happens to fall out. Single-flight loading also
+ * collapses the stampede when several parents search the same thing at once.
+ */
+const searchResponseCache = new LruTtlCache<SearchResponseDTO>({
+  max: Number(process.env.CONCIERGE_SEARCH_CACHE_MAX || 200),
+  ttlMs: Number(process.env.CONCIERGE_SEARCH_CACHE_TTL_MS || 60_000),
+});
+
+/** Test-only: drop the search cache so cases can't bleed into each other. */
+export function _resetSearchCache(): void {
+  searchResponseCache.clear();
+}
+
+/**
+ * A stable key for one grounded search. Keys are sorted so two inputs that differ
+ * only in property order share an entry, and it is built from the input AFTER
+ * server-side grounding — the scope, tab and filter pins are all in there, so a
+ * venue chat can never be served another venue's results.
+ */
+function searchCacheKey(input: StructuredSearchInput): string {
+  return JSON.stringify(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([, value]) => value !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
 
 /**
  * Compact a full search response into the small projection the MODEL sees (names
@@ -147,31 +193,62 @@ const SearchToolInput = z.object({
  * for one venue and the parent wants specifics about what's on offer, so we also
  * feed the model each offering's short description + highlights + tags (already
  * loaded — we were just dropping them). The global discovery feed stays lean.
- * NOTE: price / schedule / camp dates are NOT in the search payload — answering
- * those needs the `get_activity_details` tool (scoped chat only), not this
- * projection.
+ * NOTE: the projection carries a STARTING price (`priceFrom`) and nothing about what
+ * that price covers. Schedule, camp dates, remaining spots and the exact pricing
+ * breakdown still need `get_activity_details` (scoped chat only).
  */
-function compactResults(
+export function compactResults(
   res: SearchResponseDTO,
   { detailed = false }: { detailed?: boolean } = {},
 ): unknown {
-  const products = res.products.data.slice(0, SEARCH_PAGE_SIZE).map((p) => ({
+  const products = res.products.data.slice(0, SEARCH_PAGE_SIZE).map((p, index) => ({
+    // Position in THIS turn's list, 1-based. A parent says "the second one", and
+    // without it two products sharing a name are indistinguishable rows to the model.
+    // A position rather than a database id, so the existing id redaction is untouched
+    // and nothing internal can leak through it.
+    ref: index + 1,
     name: p.name,
     type: p.productType,
     ages: `${p.ageMin}-${p.ageMax}`,
     area: p.location?.sgDistrict ?? undefined,
     provider: p.merchant?.name ?? undefined,
-    // Google Maps reputation, so the model can mention/compare how well-rated a
-    // provider is across results. Omitted when the location has no rating.
-    rating: p.location?.gMapRating ?? undefined,
-    reviews: p.location?.reviewCount ?? undefined,
+    // The VENUE's Google Maps reputation, not the activity's. `gMapRating` lives on
+    // Location and there is no rating on Product, so every activity at one address
+    // carries this same number — it cannot tell two camps at the same venue apart.
+    // Named `venueRating` because the model reads the field name: called `rating` and
+    // sat beside the activity's own name and ages, it got attributed to the activity.
+    venueRating: p.location?.gMapRating ?? undefined,
+    venueReviews: p.location?.reviewCount ?? undefined,
+    // The lowest price a parent can pay, straight from the search index — the same
+    // figure the budget filter ranked on. Omitted when the product has no usable
+    // price; that is "not listed", never free, and the reply rules say so. No unit
+    // travels with it yet, which is why only "from $X" phrasing is permitted.
+    priceFrom: p.priceFrom ?? undefined,
+    // The unit and the caveats travel WITH the figure. Alone, a number invites being
+    // read as the total, as generally available, and as comparable to the next row's
+    // — and it is none of those.
+    priceType: p.priceType ?? undefined,
+    priceIsRange: p.priceIsRange ? true : undefined,
+    isFree: p.isFree ? true : undefined,
+    priceQualified: p.priceQualified ? true : undefined,
+    hasMinimumSpend: p.hasMinimumSpend ? true : undefined,
+    // Only present when the search actually ranked by distance. Absent means nothing
+    // was measured — which is the difference between describing proximity and
+    // guessing at it.
+    distanceKm: p.distanceKm ?? undefined,
     ...(detailed && {
       about: p.description ? p.description.slice(0, 200) : undefined,
       highlights: p.highlights?.length ? p.highlights.slice(0, 4) : undefined,
       tags: p.tags?.length ? p.tags.slice(0, 6) : undefined,
     }),
   }));
-  const providers = res.merchants.data.slice(0, 6).map((m) => ({ name: m.name }));
+  const providers = res.merchants.data
+    .slice(0, 6)
+    .map((m, index) => ({ ref: index + 1, name: m.name }));
+  // The broadening ladder relaxes the parent's ask to keep the grid from being empty.
+  // The frontend was told; the model never was, so it described a relaxed set in its
+  // own words as though it had answered the question. Passing both through is what
+  // lets the reply say which constraint was dropped instead of quietly ignoring it.
   // Packages (multi-session passes / memberships from PackageTemplate) are their own
   // search section, present ONLY when the FE tab requested them (include=packages).
   // When present, surface them to the model so it can name real package/bundle deals
@@ -185,6 +262,7 @@ function compactResults(
     productsTotal: res.products.total,
     providersTotal: res.merchants.total,
     ...(res.packages ? { packagesTotal: res.packages.total } : {}),
+    ...(res.broadened ? { broadened: true, relaxed: res.relaxed ?? [] } : {}),
     products,
     providers,
     ...(packages ? { packages } : {}),
@@ -281,11 +359,31 @@ async function runSearch(
   // already says the same thing, so it wins; a venue chat is products-only anyway.
   const askedForType =
     ctx.scoped || ctx.productTypes?.length ? null : (ctx.askedProductType ?? null);
+  // The established activity is applied SERVER-SIDE when this turn's query names none
+  // of its own. Delivering it only as prose in the system prompt made it advisory, and
+  // the model dropped it on roughly half of bare refinements — "any in the east?" came
+  // back as an unfiltered browse of the East with the parent asked afresh what their
+  // child likes. It is a fallback, never an override: a query that names a real
+  // activity is the parent changing subject, and wins.
+  const carried = ctx.scoped ? null : (ctx.carriedActivity ?? null);
+  const chosenQuery = namesAnActivity(modelQuery) ? modelQuery : (carried ?? modelQuery);
+  // Drop the offering word the model tends to echo back from the active tab. Browsing
+  // the Classes tab and typing an area produced query="classes", which then KEYWORD-
+  // matched the literal word in product text and cut the result set by ~89% (421 → 47
+  // for one district) — a filter the parent never asked for. An offering word alone
+  // leaves "", which the search treats as a browse; the type scope is already pinned
+  // separately. This safety net existed and was never wired up.
+  const groundedQuery = stripOfferingWords(chosenQuery);
+
   const input: StructuredSearchInput = {
+    // The parent's message, untouched. The `query` above has been stripped to a bare
+    // activity term for keyword matching; the words that carry their actual intent
+    // only survive here, and the semantic half ranks on them.
+    rawQuery: ctx.userMessage || undefined,
     query:
-      inferredTrails.length && isGenericExplorerMapQuery(modelQuery)
+      inferredTrails.length && isGenericExplorerMapQuery(groundedQuery)
         ? ""
-        : modelQuery,
+        : groundedQuery,
     // SCOPE + section binding are pinned SERVER-SIDE from `ctx` (the verified
     // request), never from the model — so the agent can't search outside the
     // tab the parent is viewing nor widen out of the pinned venue.
@@ -293,8 +391,14 @@ async function runSearch(
     locationId: ctx.scope?.locationId,
     merchantIds: ctx.merchantIds,
     age: pin(pf.age, a.age),
+    // A pinned family of areas (resolved deterministically from the parent's own
+    // word) wins over the model's single guess — otherwise "bukit" is answered
+    // from whichever one area the model happened to pick.
     district: pin(pf.district, a.district),
     nearDistrict: pin(pf.nearDistrict, a.nearDistrict),
+    // Server-grounded like every other area field, so an unrecognised name widens
+    // the search instead of excluding nothing (or the wrong thing).
+    excludeDistrict: a.excludeDistrict,
     // FE-pinned chips win over the model's inferred values.
     region: ctx.region ?? a.region,
     category: ctx.category ?? a.category,
@@ -315,6 +419,7 @@ async function runSearch(
     transport: pin(pf.transport, a.transport),
     daysOfWeek: pin(pf.daysOfWeek, a.daysOfWeek),
     timeOfDay: pin(pf.timeOfDay, a.timeOfDay),
+    sort: a.sort,
     page: a.page,
     pageSize: RESULTS_PAGE_SIZE,
     // A merchantLocation chat is products-only; otherwise honour the FE tab —
@@ -331,7 +436,9 @@ async function runSearch(
         ? [askedForType]
         : ctx.productTypes,
   };
-  const response = await searchClient.search(input);
+  const response = await searchResponseCache.getOrLoad(searchCacheKey(input), () =>
+    searchClient.search(input),
+  );
   return {
     response,
     input,
@@ -352,84 +459,19 @@ export const searchActivitiesTool: ConciergeTool = {
     function: {
       name: "search_activities",
       description:
-        "Search the PUBLIC catalogue of kids' activities and providers. For a named activity/provider put it in `query`. For a developmental goal, set `trail`: movement=Physical, curiosity=Cognitive, expression=Creative, people/teamwork=Social; use query:\"\" when no activity was named. Lift age, area, budget, day, time and format into typed fields. Use `district` for 'in/at' and `nearDistrict` only for 'near/around'. A categorized activity search automatically includes one grounded whole-development complement; do not call the tool again just to build a kit.",
+        "Search the PUBLIC catalogue of kids' activities and providers. For a named activity/provider put it in `query`; use query:\"\" when no activity was named. Lift age, area, budget, day, time and format into typed fields. Use `district` for 'in/at' and `nearDistrict` only for 'near/around'.",
       parameters: z.toJSONSchema(SearchToolInput),
     },
   },
   run: async (args, ctx) => {
-    const { response, input, modelCategories } = await runSearch(args, ctx);
-    const categories =
-      modelCategories == null
-        ? []
-        : Array.isArray(modelCategories)
-          ? modelCategories
-          : [modelCategories];
-    const returnedCategories = response.products.data.map(
-      (product) => product.category?.name,
-    );
-    const inferredCategories = inferActivityCategoriesFromText(
-      `${input.query} ${ctx.userMessage}`,
-    );
-    const represented = deriveExplorerMapTrails([
-      ...returnedCategories,
-      ...categories,
-      ...inferredCategories,
-    ]);
-    const complementaryTrail = chooseComplementaryExplorerMapTrail(
-      represented.trails,
-    );
-
-    // Offer the whole-development complement on any activity/trail search so the
-    // model CAN suggest a different-trail "new ground" (e.g. sport → also cognitive).
-    // The PROMPT decides when to actually use it: it's for exploratory / "what to
-    // try / development plan" moments, NOT for a pure price/area/age refinement
-    // ("cheaper", "any others") — those keep the same activity. Skipped for provider
-    // lookups, venue chats, and searches pinned to an explicit FE category chip.
-    const shouldBuildKit =
-      !ctx.scoped &&
-      ctx.category == null &&
-      input.query.trim().length > 0 &&
-      represented.trails.length > 0 &&
-      complementaryTrail != null;
-
-    let complement: SearchResponseDTO | undefined;
-    if (shouldBuildKit) {
-      try {
-        // Small page size — we only need a few results for the LLM to mention.
-        complement = await searchClient.search({
-          ...input,
-          query: "",
-          category: undefined,
-          trail: complementaryTrail,
-          page: 1,
-          pageSize: 5,
-        });
-      } catch (error) {
-        // The kit is optional enrichment. A failure must never hide the main
-        // activity results the parent asked for.
-        console.warn("[concierge] complementary trail search unavailable:", error);
-      }
-    }
-
-    const mainForModel = compactResults(response, { detailed: ctx.scoped });
-    const complementForModel =
-      complement &&
-      (complement.products.total > 0 || complement.merchants.total > 0)
-        ? {
-            trail: complementaryTrail,
-            usage:
-              "Optional new ground. Mention only after the requested activity; never present it as an equal replacement.",
-            results: compactResults(complement),
-          }
-        : undefined;
-
+    const { response } = await runSearch(args, ctx);
+    // The complementary-trail ("new ground") search is PARKED, not deleted. Its only
+    // consumer was the model projection, which went with the parent-facing framework:
+    // running it now would spend a whole search round-trip on a result nobody reads.
+    // `chooseComplementaryExplorerMapTrail` and the trail helpers are untouched, so
+    // restoring it is one block here plus one field in the projection.
     return {
-      forModel: complementForModel
-        ? {
-            ...(mainForModel as object),
-            wholeDevelopmentComplement: complementForModel,
-          }
-        : mainForModel,
+      forModel: compactResults(response, { detailed: ctx.scoped }),
       cards: response,
     };
   },

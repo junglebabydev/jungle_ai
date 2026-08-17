@@ -2,7 +2,7 @@
 
 On-demand, behavioural evals for the merchant-config AI agent (`src/ai/assistants/merchant`).
 They drive scripted "dumb merchant" conversations through the **real `POST /ai/chat`**
-and score **deterministic invariants** read back from the DB tool trace (`AiToolCall`)
+and score **deterministic invariants** read back from the DB tool trace (the persisted `AiTurn` TOOL rows)
 and the resulting `Product` / `Merchant` / `Location` rows — so the prose can be
 non-deterministic while scoring stays reproducible.
 

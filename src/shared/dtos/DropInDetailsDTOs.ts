@@ -33,6 +33,10 @@ export const CreateDropInDetailsSchema = z.object({
   maxParents: z.number().int().optional(),
   whatsIncluded: z.string().optional(),
   cancellationPolicy: z.string().optional(),
+  // Nullable, not defaulted: null means the merchant has not said. `ClassDetails`
+  // asks the same question as a defaulted boolean; these cannot, because their rows
+  // already exist and a default would answer for every one of them.
+  requiresPackage: z.boolean().nullable().optional(),
   notes: z.string().optional(),
   bookingUrl: z.string().optional(),
 });
@@ -102,6 +106,9 @@ export type DropInDetailsResponseDTO = {
   maxParents: number | null;
   whatsIncluded: string | null;
   cancellationPolicy: string | null;
+  // Whether a package must be bought to book. Null means unanswered — say "not
+  // listed" rather than treating it as a no.
+  requiresPackage: boolean | null;
   notes: string | null;
   bookingUrl: string | null;
   createdAt: Date;
@@ -141,6 +148,7 @@ export function mapDropInDetailsResponseDTO(
     maxParents: dropIn.maxParents,
     whatsIncluded: dropIn.whatsIncluded,
     cancellationPolicy: dropIn.cancellationPolicy,
+    requiresPackage: dropIn.requiresPackage,
     notes: dropIn.notes,
     bookingUrl: dropIn.bookingUrl,
     createdAt: dropIn.createdAt,

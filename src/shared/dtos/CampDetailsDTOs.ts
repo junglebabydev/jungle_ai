@@ -33,12 +33,17 @@ export const CreateCampDetailsSchema = z.object({
   lat: z.number().optional(),
   long: z.number().optional(),
   nearestMrt: z.string().optional(),
+  // Nullable, not defaulted: null means the merchant has not said. `ClassDetails`
+  // asks the same question as a defaulted boolean; these cannot, because their rows
+  // already exist and a default would answer for every one of them.
+  requiresPackage: z.boolean().nullable().optional(),
   nearestBusStop: z.string().optional(),
   mealIncluded: z.boolean().optional().default(false),
   busIncluded: z.boolean().optional().default(false),
   discountDetails: z.string().optional(),
   bookingUrl: z.string().optional(),
   notes: z.string().optional(),
+  cancellationPolicy: z.string().optional(),
 });
 
 export type CreateCampDetailsDTO = z.infer<typeof CreateCampDetailsSchema>;
@@ -104,12 +109,17 @@ export type CampDetailsResponseDTO = {
   lat: number | null;
   long: number | null;
   nearestMrt: string | null;
+  // Whether a package must be bought to book. Null means unanswered — say "not
+  // listed" rather than treating it as a no.
+  requiresPackage: boolean | null;
   nearestBusStop: string | null;
   mealIncluded: boolean;
   busIncluded: boolean;
   discountDetails: string | null;
   bookingUrl: string | null;
   notes: string | null;
+  // The merchant's stated refund terms, or null when they have not given any.
+  cancellationPolicy: string | null;
   createdAt: Date;
 
   options?: CampOptionResponseDTO[];
@@ -147,12 +157,14 @@ export function mapCampDetailsResponseDTO(
     lat: campDetails.lat,
     long: campDetails.long,
     nearestMrt: campDetails.nearestMrt,
+    requiresPackage: campDetails.requiresPackage,
     nearestBusStop: campDetails.nearestBusStop,
     mealIncluded: campDetails.mealIncluded,
     busIncluded: campDetails.busIncluded,
     discountDetails: campDetails.discountDetails,
     bookingUrl: campDetails.bookingUrl,
     notes: campDetails.notes,
+    cancellationPolicy: campDetails.cancellationPolicy,
     createdAt: campDetails.createdAt,
 
     options: campOptions

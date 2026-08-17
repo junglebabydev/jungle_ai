@@ -51,6 +51,7 @@ export const CreateClassDetailsSchema = z.object({
   specialNeeds: z.boolean().optional().default(false),
   ratioRequirement: z.string().optional(),
   dresscode: z.string().optional(),
+  cancellationPolicy: z.string().optional(),
 });
 
 export type CreateClassDetailsDTO = z.infer<typeof CreateClassDetailsSchema>;
@@ -141,6 +142,8 @@ export type ClassDetailsResponseDTO = {
   specialNeeds: boolean;
   ratioRequirement: string | null;
   dresscode: string | null;
+  // A parent asks this of a class as readily as of a party. Null when unstated.
+  cancellationPolicy: string | null;
 };
 
 export function mapClassDetailsResponseDTO(
@@ -190,6 +193,7 @@ export function mapClassDetailsResponseDTO(
     specialNeeds: classDetails.specialNeeds,
     ratioRequirement: classDetails.ratioRequirement,
     dresscode: classDetails.dresscode,
+    cancellationPolicy: classDetails.cancellationPolicy,
   };
 
   return mapped;

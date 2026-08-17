@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ServiceLocator } from "../../../../services";
+import { productCompleteness } from "../completeness";
 import { ProductFilter } from "../../../../shared/dtos/ProductDTOs";
 import { ALL_CONFIG_KINDS, describeFields } from "../manifest";
 import { defineTool } from "./types";
@@ -83,7 +84,16 @@ export const getProduct = defineTool({
         .catch(() => null),
     ]);
 
-    if (!campDetails) return { product, pricing, schedules };
+    // What is still missing, alongside what is there. The merchant's next question
+    // after a change is almost always "what else does this need", and the agent could
+    // only answer it by eyeballing the payload — which it did inconsistently.
+    const completeness = productCompleteness({
+      product,
+      pricing,
+      schedules,
+    });
+
+    if (!campDetails) return { product, pricing, schedules, completeness };
 
     // Surface the camp's details plus its options separately, hiding archived ones
     // (the camp-details lookup doesn't filter them, but products hide archived).
@@ -95,6 +105,16 @@ export const getProduct = defineTool({
       schedules,
       campDetails: details,
       ...(campOptions.length ? { campOptions } : {}),
+      // Re-scored with the camp's options, so "nothing to book" isn't reported for a
+      // camp whose dates live on its options rather than on a schedule.
+      completeness: productCompleteness({
+        product,
+        pricing,
+        schedules,
+        campOptions,
+        // Loaded here, so the camp's pre-booking answers get judged rather than skipped.
+        campDetails: details,
+      }),
     };
   },
 });

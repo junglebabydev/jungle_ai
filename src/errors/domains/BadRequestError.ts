@@ -968,6 +968,21 @@ export const BadRequestError = {
 
   // Agent guardrail (model-facing message): the model interprets this and edits the
   // existing product instead of creating a duplicate. The merchant never sees it.
+  /**
+   * A price recorded under the wrong unit is worse than no price: the figure looks
+   * right and means something else, and it is shown to parents that way. So the
+   * agent is stopped and told to ask, rather than allowed to guess a unit.
+   */
+  ImplausiblePriceType: (
+    priceType: string,
+    productType: string,
+    allowed: readonly string[],
+  ) =>
+    new ApplicationError(
+      "BR_188",
+      `A ${productType} cannot be priced as ${priceType} — that unit belongs to a different kind of product, and the figure would be shown to parents with the wrong meaning. Valid for a ${productType}: ${allowed.join(", ")}. Ask the merchant which one this price is, and do not guess.`,
+      HTTPS_STATUS_CODE.BAD_REQUEST,
+    ),
   DuplicateProductName: (name: string, id: number) =>
     new ApplicationError(
       "BR_169",

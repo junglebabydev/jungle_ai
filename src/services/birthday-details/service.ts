@@ -57,6 +57,7 @@ async function createBirthday(
             maxParents: birthdayDetailsDTO.maxParents,
             whatsIncluded: birthdayDetailsDTO.whatsIncluded,
             cancellationPolicy: birthdayDetailsDTO.cancellationPolicy,
+            requiresPackage: birthdayDetailsDTO.requiresPackage,
           },
         });
 
@@ -437,6 +438,8 @@ async function updateBirthday(
               cancellationPolicy:
                 birthdayDetailsDTO.cancellationPolicy ??
                 existing.cancellationPolicy,
+              requiresPackage:
+                birthdayDetailsDTO.requiresPackage ?? existing.requiresPackage,
             },
           });
         }

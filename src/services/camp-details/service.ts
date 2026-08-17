@@ -55,12 +55,14 @@ async function createCamp(
           lat: campDetailsDTO.lat,
           long: campDetailsDTO.long,
           nearestMrt: campDetailsDTO.nearestMrt,
+          requiresPackage: campDetailsDTO.requiresPackage,
           nearestBusStop: campDetailsDTO.nearestBusStop,
           mealIncluded: campDetailsDTO.mealIncluded,
           busIncluded: campDetailsDTO.busIncluded,
           discountDetails: campDetailsDTO.discountDetails,
           bookingUrl: campDetailsDTO.bookingUrl,
           notes: campDetailsDTO.notes,
+          cancellationPolicy: campDetailsDTO.cancellationPolicy,
         },
       });
 
@@ -473,6 +475,8 @@ async function updateCamp(
             lat: campDetailsDTO.lat ?? existing.lat,
             long: campDetailsDTO.long ?? existing.long,
             nearestMrt: campDetailsDTO.nearestMrt ?? existing.nearestMrt,
+            requiresPackage:
+              campDetailsDTO.requiresPackage ?? existing.requiresPackage,
             nearestBusStop:
               campDetailsDTO.nearestBusStop ?? existing.nearestBusStop,
             mealIncluded: campDetailsDTO.mealIncluded ?? existing.mealIncluded,
@@ -481,6 +485,8 @@ async function updateCamp(
               campDetailsDTO.discountDetails ?? existing.discountDetails,
             bookingUrl: campDetailsDTO.bookingUrl ?? existing.bookingUrl,
             notes: campDetailsDTO.notes ?? existing.notes,
+            cancellationPolicy:
+              campDetailsDTO.cancellationPolicy ?? existing.cancellationPolicy,
           },
         });
       }

@@ -48,7 +48,9 @@ export const ConciergeChatSchema = z.object({
   // the model still infers from `message`. Same field names + validation as
   // `SearchPageRequestSchema` so the two endpoints can't drift.
   age: z.number().int().optional(),
-  district: z.string().max(120).optional(),
+  district: z
+    .union([z.string().max(120), z.array(z.string().max(120)).max(12)])
+    .optional(),
   nearDistrict: z.string().max(120).optional(),
   trail: TrailFilterSchema,
   locationType: z.string().max(20).optional(),
@@ -83,7 +85,8 @@ export type ConciergeChatDTO = z.infer<typeof ConciergeChatSchema>;
  */
 export type ConciergePinnedFilters = {
   age?: number;
-  district?: string;
+  /** One area, or the family a single word names ("bukit" → four planning areas). */
+  district?: string | string[];
   nearDistrict?: string;
   trail?: string | string[];
   locationType?: string;
