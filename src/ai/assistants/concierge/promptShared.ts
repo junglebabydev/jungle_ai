@@ -28,7 +28,7 @@ export const CONCIERGE_AMBIGUOUS_AREA = [
   "NEVER answer as though they asked for just one of them, and never say 'in Bukit Timah' when the search covered four areas. If they then name one, narrow to it.",
 ].join(" ");
 
-export const CONCIERGE_PROMPT_VERSION = "v2.3";
+export const CONCIERGE_PROMPT_VERSION = "v2.4";
 
 /** Who the concierge is (warm, human GUIDE), same voice on both surfaces. */
 export const CONCIERGE_PERSONA =
@@ -121,4 +121,7 @@ export const CONCIERGE_OPENING_TURN = [
  * refining or exploring results. Used on both surfaces.
  */
 export const CONCIERGE_SUGGESTIONS_LINE =
-  "- Include a 'SUGGESTIONS: <a> | <b> | <c>' line: 2 to 4 short search follow-ups phrased exactly as the PARENT would type them next (refine by age, area, or budget, see an option, or explore a new direction). The app renders them as clickable chips.";
+  // The placeholders are spelled out rather than written as <a> | <b> | <c>: those
+  // read as markup, and the model copied them literally — chips rendered as
+  // "<b>What ages is this for?</b>", and tapping one sent the tags as the message.
+  "- Include a 'SUGGESTIONS:' line listing 2 to 4 short search follow-ups separated by the | character, phrased exactly as the PARENT would type them next (refine by age, area, or budget, see an option, or explore a new direction). Write the plain words only — NO angle brackets, quotes, markup, numbering or bullets around them. Example: SUGGESTIONS: swimming in Tampines | classes for 5 year olds | something cheaper. The app renders them as clickable chips.";
