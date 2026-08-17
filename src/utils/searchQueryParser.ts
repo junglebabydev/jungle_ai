@@ -331,18 +331,30 @@ export function buildDistrictMatchers(
   // model picks ONE of them — so a parent asking for "bukit" is answered from a
   // quarter of the catalogue and told it is the answer. Families of one are left
   // out: the exact matcher already covers those.
+  // Group by leading word, INCLUDING single-word areas: the catalogue has both
+  // "Jurong" and "Jurong East"/"Jurong West", so a family keyed only on multi-word
+  // names would leave the bare one out — and its exact match would then win, quietly
+  // answering "jurong" from one area out of three.
   const families = new Map<string, string[]>();
   for (const value of kept) {
-    const [head, ...rest] = value.split(/\s+/);
-    if (!rest.length) continue; // single-word area — exact match is enough
-    const key = head.toLowerCase();
+    const key = value.split(/\s+/)[0].toLowerCase();
     families.set(key, [...(families.get(key) ?? []), value]);
   }
+  const familyKeys = new Set(
+    [...families.entries()].filter(([, values]) => values.length > 1).map(([key]) => key),
+  );
 
-  const exact: PhraseMatcher[] = kept.map((value) => ({
-    re: new RegExp(`\\b${escapeForRegex(value.toLowerCase())}\\b`, "i"),
-    value,
-  }));
+  // A bare area that heads a real family is dropped as an exact match: the family
+  // already contains it, and keeping both would make the narrower reading win a tie.
+  const exact: PhraseMatcher[] = kept
+    .filter((value) => {
+      const words = value.split(/\s+/);
+      return !(words.length === 1 && familyKeys.has(words[0].toLowerCase()));
+    })
+    .map((value) => ({
+      re: new RegExp(`\\b${escapeForRegex(value.toLowerCase())}\\b`, "i"),
+      value,
+    }));
   const familyMatchers: PhraseMatcher[] = [...families.entries()]
     .filter(([, values]) => values.length > 1)
     .map(([key, values]) => ({
