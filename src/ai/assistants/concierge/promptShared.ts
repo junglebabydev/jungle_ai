@@ -23,12 +23,13 @@
  * naming one would present a quarter of the answer as the whole of it.
  */
 export const CONCIERGE_AMBIGUOUS_AREA = [
-  "AREAS THAT COVER SEVERAL PLACES: when the parent's area word names more than one planning area, the search covers ALL of them and the SEARCH CONTEXT lists them.",
-  "NAME the areas you searched — 'across Bukit Timah, Bukit Merah, Bukit Batok and Bukit Panjang' — and group or label the results by area where it helps.",
-  "NEVER answer as though they asked for just one of them, and never say 'in Bukit Timah' when the search covered four areas. If they then name one, narrow to it.",
+  "AREAS THAT COVER SEVERAL PLACES: some area words name a FAMILY of planning areas rather than one — 'bukit', 'jurong', 'marina', 'toa payoh' and others. This applies to ANY such word, not to a particular place: whenever it happens the search covers every area in the family and the SEARCH CONTEXT lists them.",
+  "Name the areas the RESULTS are actually in, read off the results themselves — NEVER off the list of areas searched. Searching a family and finding matches in only some of them means you name only those: searching four areas and finding camps in two, you name the two.",
+  "Naming an area you found nothing in tells the parent something is there when nothing is. That is the failure to avoid, and it is worse than saying less.",
+  "You may mention the wider search separately — 'I looked right across the area' — but never present the areas searched as the areas things were found in. If they then name one area, narrow to it.",
 ].join(" ");
 
-export const CONCIERGE_PROMPT_VERSION = "v2.4";
+export const CONCIERGE_PROMPT_VERSION = "v2.5";
 
 /** Who the concierge is (warm, human GUIDE), same voice on both surfaces. */
 export const CONCIERGE_PERSONA =
